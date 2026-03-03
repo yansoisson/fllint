@@ -7,6 +7,21 @@
 		deleteConversation,
 		getSidebarOpen
 	} from '$lib/stores.svelte';
+
+	let confirmDeleteId = $state<string | null>(null);
+	let confirmTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	function handleDelete(id: string) {
+		if (confirmDeleteId === id) {
+			deleteConversation(id);
+			confirmDeleteId = null;
+			if (confirmTimeout) clearTimeout(confirmTimeout);
+		} else {
+			confirmDeleteId = id;
+			if (confirmTimeout) clearTimeout(confirmTimeout);
+			confirmTimeout = setTimeout(() => { confirmDeleteId = null; }, 3000);
+		}
+	}
 </script>
 
 <aside class="sidebar" class:open={getSidebarOpen()}>
@@ -32,12 +47,13 @@
 				<span class="title">{conv.title}</span>
 				<button
 					class="delete"
+					class:confirm={confirmDeleteId === conv.id}
 					onclick={(e: MouseEvent) => {
 						e.stopPropagation();
-						deleteConversation(conv.id);
+						handleDelete(conv.id);
 					}}
 				>
-					&times;
+					{confirmDeleteId === conv.id ? '?' : '\u00d7'}
 				</button>
 			</div>
 		{/each}
@@ -146,6 +162,13 @@
 	.delete:hover {
 		color: #e74c3c;
 		background: rgba(231, 76, 60, 0.08);
+	}
+
+	.delete.confirm {
+		opacity: 1;
+		color: #e74c3c;
+		background: rgba(231, 76, 60, 0.12);
+		font-weight: 700;
 	}
 
 	.empty {

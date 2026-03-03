@@ -5,6 +5,7 @@
 
 	let config = $state<AppConfig | null>(null);
 	let loading = $state(false);
+	let error = $state<string | null>(null);
 
 	$effect(() => {
 		if (getSettingsOpen() && !config) {
@@ -14,10 +15,12 @@
 
 	async function loadConfig() {
 		loading = true;
+		error = null;
 		try {
 			config = await getConfig();
 		} catch (err) {
 			console.error('Failed to load config:', err);
+			error = 'Failed to load settings. Please try again.';
 		} finally {
 			loading = false;
 		}
@@ -25,11 +28,13 @@
 
 	async function save() {
 		if (!config) return;
+		error = null;
 		try {
 			config = await updateConfig(config);
 			toggleSettings();
 		} catch (err) {
 			console.error('Failed to save config:', err);
+			error = 'Failed to save settings. Please try again.';
 		}
 	}
 </script>
@@ -58,7 +63,10 @@
 					<span>Port</span>
 					<input type="number" bind:value={config.port} />
 				</label>
-				<button class="save-btn" onclick={save}>Save</button>
+				{#if error}
+				<p class="error-msg">{error}</p>
+			{/if}
+			<button class="save-btn" onclick={save}>Save</button>
 			</div>
 		{/if}
 	</div>
@@ -166,5 +174,14 @@
 		color: var(--text-muted);
 		text-align: center;
 		padding: 20px;
+	}
+
+	.error-msg {
+		color: var(--error-text, #991b1b);
+		font-size: 0.85rem;
+		padding: 8px 12px;
+		border-radius: var(--radius);
+		background: var(--error-bg, #fef2f2);
+		border: 1px solid var(--error-border, #fecaca);
 	}
 </style>

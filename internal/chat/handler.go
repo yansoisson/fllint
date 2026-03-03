@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -146,14 +147,16 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	// Persist assistant response
 	if fullResponse != "" {
 		assistantMsg := llm.ChatMessage{Role: "assistant", Content: fullResponse}
-		h.store.AppendMessage(conv.ID, assistantMsg)
+		if _, err := h.store.AppendMessage(conv.ID, assistantMsg); err != nil {
+			log.Printf("ERROR: failed to persist assistant message for conv %s: %v", conv.ID, err)
+		}
 	}
 }
 
 func (h *Handler) listConversations(w http.ResponseWriter, r *http.Request) {
 	convs, err := h.store.List()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeErrorJSON(w, http.StatusInternalServerError, "store_error", "Failed to load conversations.")
 		return
 	}
 	if convs == nil {
@@ -167,7 +170,7 @@ func (h *Handler) createConversation(w http.ResponseWriter, r *http.Request) {
 		Title string `json:"title"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
 		return
 	}
 	if req.Title == "" {
@@ -175,7 +178,7 @@ func (h *Handler) createConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	conv, err := h.store.Create(req.Title)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeErrorJSON(w, http.StatusInternalServerError, "store_error", "Failed to create conversation.")
 		return
 	}
 	writeJSON(w, http.StatusCreated, conv)
@@ -185,7 +188,7 @@ func (h *Handler) getConversation(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	conv, err := h.store.Get(id)
 	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
+		writeErrorJSON(w, http.StatusNotFound, "not_found", "Conversation not found.")
 		return
 	}
 	writeJSON(w, http.StatusOK, conv)
@@ -194,7 +197,7 @@ func (h *Handler) getConversation(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteConversation(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.store.Delete(id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeErrorJSON(w, http.StatusInternalServerError, "store_error", "Failed to delete conversation.")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

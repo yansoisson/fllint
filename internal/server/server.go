@@ -91,11 +91,11 @@ func (s *Server) setActiveModel(w http.ResponseWriter, r *http.Request) {
 		ModelID string `json:"model_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
 		return
 	}
 	if err := s.llmManager.SetActive(req.ModelID); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondErrorJSON(w, http.StatusBadRequest, "engine_error", err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -122,11 +122,11 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
 	var c config.Config
 	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
 		return
 	}
 	if err := config.Save(&c); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondErrorJSON(w, http.StatusInternalServerError, "config_error", "Failed to save configuration.")
 		return
 	}
 	respondJSON(w, http.StatusOK, c)
@@ -174,4 +174,10 @@ func respondJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+func respondErrorJSON(w http.ResponseWriter, status int, code string, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": message, "code": code})
 }

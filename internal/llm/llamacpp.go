@@ -319,6 +319,7 @@ func (e *LlamaCppEngine) killProcess() {
 	e.mu.RUnlock()
 	if cmd != nil && cmd.Process != nil {
 		cmd.Process.Kill()
+		cmd.Wait() // Reap the child process to avoid zombies
 	}
 }
 

@@ -14,7 +14,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 		headers: { 'Content-Type': 'application/json' },
 		...init
 	});
-	if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+	if (!res.ok) {
+		const body = await res.json().catch(() => null);
+		throw new Error(body?.error ?? `Request failed (${res.status})`);
+	}
 	return res.json();
 }
 
@@ -44,7 +47,8 @@ export async function deleteConversation(id: string): Promise<void> {
 export async function* streamChat(
 	content: string,
 	conversationId?: string,
-	images?: string[]
+	images?: string[],
+	signal?: AbortSignal
 ): AsyncGenerator<SSEToken, void, undefined> {
 	const res = await fetch(`${BASE}/chat`, {
 		method: 'POST',
@@ -53,7 +57,8 @@ export async function* streamChat(
 			content,
 			conversation_id: conversationId ?? '',
 			images: images?.length ? images : undefined
-		})
+		}),
+		signal
 	});
 
 	if (!res.ok) {

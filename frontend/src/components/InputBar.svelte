@@ -1,6 +1,6 @@
 <script lang="ts">
 	import ImagePreview from './ImagePreview.svelte';
-	import { sendMessage, getIsStreaming, addPendingImage, getPendingImages, getEngineStatus } from '$lib/stores.svelte';
+	import { sendMessage, getIsStreaming, cancelStream, addPendingImage, getPendingImages, getEngineStatus } from '$lib/stores.svelte';
 
 	let inputText = $state('');
 	let fileInput: HTMLInputElement;
@@ -97,18 +97,31 @@
 				disabled={getIsStreaming()}
 				rows={1}
 			></textarea>
-			<button
-				class="send-btn"
-				onclick={handleSubmit}
-				disabled={getIsStreaming() || (!inputText.trim() && getPendingImages().length === 0)}
-				title="Send message"
-				aria-label="Send message"
-			>
-				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-					<line x1="12" y1="19" x2="12" y2="5" />
-					<polyline points="5 12 12 5 19 12" />
-				</svg>
-			</button>
+			{#if getIsStreaming()}
+				<button
+					class="stop-btn"
+					onclick={cancelStream}
+					title="Stop generating"
+					aria-label="Stop generating"
+				>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+						<rect x="4" y="4" width="16" height="16" rx="2" />
+					</svg>
+				</button>
+			{:else}
+				<button
+					class="send-btn"
+					onclick={handleSubmit}
+					disabled={!inputText.trim() && getPendingImages().length === 0}
+					title="Send message"
+					aria-label="Send message"
+				>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+						<line x1="12" y1="19" x2="12" y2="5" />
+						<polyline points="5 12 12 5 19 12" />
+					</svg>
+				</button>
+			{/if}
 		</div>
 	</div>
 </div>
@@ -204,5 +217,22 @@
 		background: var(--bg-tertiary);
 		color: var(--text-muted);
 		cursor: not-allowed;
+	}
+
+	.stop-btn {
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
+		background: var(--text-secondary);
+		color: white;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all var(--transition);
+		flex-shrink: 0;
+	}
+
+	.stop-btn:hover {
+		background: var(--text-primary);
 	}
 </style>

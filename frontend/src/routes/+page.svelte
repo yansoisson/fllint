@@ -4,10 +4,10 @@
 	import InputBar from '$components/InputBar.svelte';
 	import ModelSelector from '$components/ModelSelector.svelte';
 	import Settings from '$components/Settings.svelte';
+	import Toast from '$components/Toast.svelte';
 	import {
-		loadConversations,
-		loadModels,
-		loadStatus,
+		initApp,
+		getInitError,
 		toggleSidebar,
 		toggleSettings,
 		getMessages,
@@ -15,9 +15,7 @@
 	} from '$lib/stores.svelte';
 
 	$effect(() => {
-		loadConversations();
-		loadModels();
-		loadStatus();
+		initApp();
 	});
 </script>
 
@@ -43,6 +41,12 @@
 				</svg>
 			</button>
 		</header>
+		{#if getInitError()}
+			<div class="init-error">
+				<span>{getInitError()}</span>
+				<button class="retry-btn" onclick={() => initApp()}>Retry</button>
+			</div>
+		{/if}
 		<div class="content" class:centered={getMessages().length === 0 && !getIsStreaming()}>
 			<ChatWindow />
 			<InputBar />
@@ -51,6 +55,7 @@
 </div>
 
 <Settings />
+<Toast />
 
 <style>
 	.app {
@@ -104,5 +109,31 @@
 	.icon-btn:hover {
 		background: var(--bg-hover);
 		color: var(--text-primary);
+	}
+
+	.init-error {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 12px;
+		padding: 10px 16px;
+		background: var(--error-bg, #fef2f2);
+		border-bottom: 1px solid var(--error-border, #fecaca);
+		color: var(--error-text, #991b1b);
+		font-size: 0.875rem;
+	}
+
+	.retry-btn {
+		padding: 4px 12px;
+		border-radius: var(--radius);
+		background: var(--error-text, #991b1b);
+		color: white;
+		font-size: 0.8rem;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.retry-btn:hover {
+		opacity: 0.9;
 	}
 </style>

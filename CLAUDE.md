@@ -8,6 +8,8 @@ Remember that the 1 folder philosophy is essential, you should never forget that
 
 Push to github is already configured too (just use git push -u origin main to push after commit)
 
+The project should respect the computer of the user. It should be possible to terminate all background processes by quitting the app. And on MacOS, the "Fllint" text on the bottom should disappear if the app isn't active anymore, and, as mentioned earlier, the one folder structure is essential. 
+
 ## Build & Development Commands
 
 ```bash

@@ -210,9 +210,9 @@
 		padding: 10px 16px;
 		margin-top: 8px;
 		border-radius: var(--radius);
-		background: #fef2f2;
-		border: 1px solid #fecaca;
-		color: #991b1b;
+		background: var(--error-bg);
+		border: 1px solid var(--error-border);
+		color: var(--error-text);
 		font-size: 0.9em;
 		max-width: var(--content-max-width);
 		width: 100%;
@@ -223,14 +223,14 @@
 		padding: 4px 10px;
 		border-radius: var(--radius);
 		background: transparent;
-		border: 1px solid #fecaca;
-		color: #991b1b;
+		border: 1px solid var(--error-border);
+		color: var(--error-text);
 		font-size: 0.8em;
 		cursor: pointer;
 		white-space: nowrap;
 	}
 
 	.dismiss-btn:hover {
-		background: #fee2e2;
+		background: var(--error-bg-hover);
 	}
 </style>

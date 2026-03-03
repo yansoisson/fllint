@@ -9,6 +9,7 @@ let messages = $state<ChatMessage[]>([]);
 // --- Streaming ---
 let isStreaming = $state(false);
 let streamingContent = $state('');
+let streamAbortController: AbortController | null = null;
 
 // --- Models ---
 let models = $state<ModelInfo[]>([]);
@@ -22,6 +23,9 @@ let sidebarOpen = $state(true);
 let settingsOpen = $state(false);
 let pendingImages = $state<{ file: File; preview: string }[]>([]);
 let chatError = $state<string | null>(null);
+let initError = $state<string | null>(null);
+let notification = $state<{ message: string; type: 'error' | 'info' } | null>(null);
+let notificationTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // --- Getters ---
 export function getConversations() {
@@ -60,6 +64,12 @@ export function getEngineStatus() {
 export function getChatError() {
 	return chatError;
 }
+export function getInitError() {
+	return initError;
+}
+export function getNotification() {
+	return notification;
+}
 
 // --- Actions ---
 
@@ -73,6 +83,60 @@ export function toggleSettings() {
 
 export function clearChatError() {
 	chatError = null;
+}
+
+export function showNotification(message: string, type: 'error' | 'info' = 'error') {
+	notification = { message, type };
+	if (notificationTimeout) clearTimeout(notificationTimeout);
+	notificationTimeout = setTimeout(() => {
+		notification = null;
+	}, 5000);
+}
+
+export function dismissNotification() {
+	notification = null;
+	if (notificationTimeout) {
+		clearTimeout(notificationTimeout);
+		notificationTimeout = null;
+	}
+}
+
+export function cancelStream() {
+	if (streamAbortController) {
+		streamAbortController.abort();
+		streamAbortController = null;
+	}
+}
+
+export async function initApp() {
+	initError = null;
+	const maxRetries = 3;
+	const retryDelay = 1000;
+
+	for (let attempt = 0; attempt < maxRetries; attempt++) {
+		try {
+			const [convs, mdls, status] = await Promise.all([
+				api.listConversations(),
+				api.listModels(),
+				api.fetchStatus()
+			]);
+			conversations = convs;
+			models = mdls;
+			engineStatus = status;
+			initError = null;
+
+			// Auto-start status polling if engine is already loading a model
+			if (engineStatus?.engine_state === 'starting') {
+				startStatusPolling();
+			}
+			return;
+		} catch {
+			if (attempt < maxRetries - 1) {
+				await new Promise((r) => setTimeout(r, retryDelay));
+			}
+		}
+	}
+	initError = 'Could not connect to Fllint server. Please restart the app or click Retry.';
 }
 
 export function addPendingImage(file: File) {
@@ -97,6 +161,7 @@ export async function loadConversations() {
 		conversations = await api.listConversations();
 	} catch (err) {
 		console.error('Failed to load conversations:', err);
+		showNotification('Failed to load conversations.');
 	}
 }
 
@@ -107,6 +172,7 @@ export async function selectConversation(id: string) {
 		messages = conv.messages;
 	} catch (err) {
 		console.error('Failed to load conversation:', err);
+		showNotification('Failed to load conversation.');
 	}
 }
 
@@ -126,6 +192,7 @@ export async function deleteConversation(id: string) {
 		await loadConversations();
 	} catch (err) {
 		console.error('Failed to delete conversation:', err);
+		showNotification('Failed to delete conversation.');
 	}
 }
 
@@ -156,12 +223,14 @@ export async function sendMessage(content: string) {
 
 	isStreaming = true;
 	streamingContent = '';
+	streamAbortController = new AbortController();
 
 	try {
 		for await (const token of api.streamChat(
 			content,
 			activeConversationId ?? undefined,
-			imageUrls.length > 0 ? imageUrls : undefined
+			imageUrls.length > 0 ? imageUrls : undefined,
+			streamAbortController.signal
 		)) {
 			if (token.conversation_id && !activeConversationId) {
 				activeConversationId = token.conversation_id;
@@ -173,11 +242,19 @@ export async function sendMessage(content: string) {
 		messages = [...messages, { role: 'assistant', content: streamingContent }];
 		await loadConversations();
 	} catch (err) {
-		const errorMessage = err instanceof Error ? err.message : 'Failed to get response.';
-		chatError = errorMessage;
+		if (err instanceof DOMException && err.name === 'AbortError') {
+			// User cancelled — keep partial response if any
+			if (streamingContent) {
+				messages = [...messages, { role: 'assistant', content: streamingContent }];
+			}
+		} else {
+			const errorMessage = err instanceof Error ? err.message : 'Failed to get response.';
+			chatError = errorMessage;
+		}
 	} finally {
 		isStreaming = false;
 		streamingContent = '';
+		streamAbortController = null;
 	}
 }
 
@@ -186,6 +263,7 @@ export async function loadModels() {
 		models = await api.listModels();
 	} catch (err) {
 		console.error('Failed to load models:', err);
+		showNotification('Failed to load models.');
 	}
 }
 
@@ -209,6 +287,7 @@ export async function refreshModels() {
 		await loadStatus();
 	} catch (err) {
 		console.error('Failed to refresh models:', err);
+		showNotification('Failed to refresh models.');
 	}
 }
 
@@ -219,6 +298,7 @@ export async function loadStatus() {
 		engineStatus = await api.fetchStatus();
 	} catch (err) {
 		console.error('Failed to load status:', err);
+		showNotification('Failed to load engine status.');
 	}
 }
 

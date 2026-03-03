@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -84,16 +85,24 @@ func Run(frontendFS fs.FS) {
 		}
 	}()
 
+	// Shared shutdown logic — safe to call from multiple goroutines
+	var shutdownOnce sync.Once
+	shutdown := func() {
+		shutdownOnce.Do(func() {
+			log.Println("Shutting down...")
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			httpServer.Shutdown(shutdownCtx)
+			llmManager.Stop()
+		})
+	}
+
 	// Handle graceful shutdown in background
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 		<-sigCh
-		log.Println("Received interrupt signal, shutting down...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		httpServer.Shutdown(shutdownCtx)
-		llmManager.Stop()
+		shutdown()
 		launcher.QuitTray()
 	}()
 
@@ -101,14 +110,7 @@ func Run(frontendFS fs.FS) {
 	// This blocks until the tray exits (via Quit menu item or QuitTray() call).
 	launcher.RunTray(
 		func() { launcher.OpenBrowser(url) },
-		func() {
-			// onQuit: shut down the HTTP server and LLM engine
-			log.Println("Quit from tray, shutting down...")
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			httpServer.Shutdown(shutdownCtx)
-			llmManager.Stop()
-		},
+		func() { shutdown() },
 	)
 
 	log.Println("Fllint stopped.")

@@ -33,6 +33,12 @@
 	--input-max-width: 768px;
 	--content-max-width: 768px;
 
+	/* Error */
+	--error-bg: #fef2f2;
+	--error-border: #fecaca;
+	--error-text: #991b1b;
+	--error-bg-hover: #fee2e2;
+
 	/* Shared */
 	--radius: 8px;
 	--radius-lg: 24px;
