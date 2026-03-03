@@ -6,6 +6,8 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +16,7 @@ import (
 	"github.com/fllint/fllint/internal/config"
 	"github.com/fllint/fllint/internal/image"
 	"github.com/fllint/fllint/internal/llm"
+	"github.com/fllint/fllint/internal/prompt"
 )
 
 // Server holds the HTTP server and its dependencies.
@@ -53,6 +56,8 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager) (*Server
 		r.Get("/models", s.listModels)
 		r.Put("/models/active", s.setActiveModel)
 		r.Post("/models/refresh", s.refreshModels)
+		r.Post("/models/delete", s.deleteModel)
+		r.Post("/models/rename", s.renameModel)
 
 		r.Get("/status", s.getStatus)
 
@@ -61,6 +66,9 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager) (*Server
 
 		r.Get("/config", s.getConfig)
 		r.Put("/config", s.updateConfig)
+		r.Get("/config/system-prompt-default", s.getDefaultSystemPrompt)
+
+		r.Post("/open-folder", s.openFolder)
 	})
 
 	// SPA fallback (after API routes)
@@ -125,11 +133,109 @@ func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
 		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
 		return
 	}
+
+	// Preserve DataDir from current config — the frontend should not override it
+	current := config.Get()
+	c.DataDir = current.DataDir
+	c.WithDefaults()
+
 	if err := config.Save(&c); err != nil {
 		respondErrorJSON(w, http.StatusInternalServerError, "config_error", "Failed to save configuration.")
 		return
 	}
+
+	// Live-update inference params on the running engine (no restart needed)
+	if engine := s.llmManager.Engine(); engine != nil {
+		if e, ok := engine.(*llm.LlamaCppEngine); ok {
+			e.SetInferenceParams(llm.InferenceParams{
+				Temperature:   c.Temperature,
+				TopP:          c.TopP,
+				TopK:          c.TopK,
+				RepeatPenalty: c.RepeatPenalty,
+				MaxTokens:     c.MaxTokens,
+				Seed:          c.Seed,
+			})
+		}
+	}
+
 	respondJSON(w, http.StatusOK, c)
+}
+
+func (s *Server) getDefaultSystemPrompt(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]string{
+		"prompt": prompt.DefaultSystemPrompt,
+	})
+}
+
+func (s *Server) deleteModel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ModelID string `json:"model_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+	if err := s.llmManager.DeleteModel(req.ModelID); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "model_error", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) renameModel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ModelID string `json:"model_id"`
+		Name    string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+	if err := s.llmManager.RenameModel(req.ModelID, req.Name); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "model_error", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) openFolder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Folder string `json:"folder"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+
+	var dir string
+	switch req.Folder {
+	case "models":
+		dir = s.cfg.ModelsDir
+	case "data":
+		dir = s.cfg.DataDir
+	default:
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request",
+			"Invalid folder. Use 'models' or 'data'.")
+		return
+	}
+
+	if err := openInFileManager(dir); err != nil {
+		respondErrorJSON(w, http.StatusInternalServerError, "open_error",
+			"Failed to open folder.")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func openInFileManager(dir string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", dir).Start()
+	case "linux":
+		return exec.Command("xdg-open", dir).Start()
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
 }
 
 // --- SPA serving ---

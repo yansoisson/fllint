@@ -86,6 +86,47 @@ func (s *Store) Delete(id string) error {
 	return os.Remove(path)
 }
 
+// DeleteAll removes all conversations from disk.
+func (s *Store) DeleteAll() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return 0, err
+	}
+
+	count := 0
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.dir, e.Name())); err != nil {
+			return count, fmt.Errorf("failed to delete %s: %w", e.Name(), err)
+		}
+		count++
+	}
+	return count, nil
+}
+
+// Count returns the number of stored conversations.
+func (s *Store) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".json" {
+			count++
+		}
+	}
+	return count
+}
+
 // AppendMessage adds a message to a conversation and persists it.
 func (s *Store) AppendMessage(id string, msg llm.ChatMessage) (*Conversation, error) {
 	s.mu.Lock()

@@ -47,6 +47,16 @@ func (s EngineState) String() string {
 	}
 }
 
+// InferenceParams holds per-request inference parameters read from config.
+type InferenceParams struct {
+	Temperature   float64
+	TopP          float64
+	TopK          int
+	RepeatPenalty float64
+	MaxTokens     int
+	Seed          int
+}
+
 // LlamaCppEngine manages a llama-server child process and communicates
 // with it via the OpenAI-compatible HTTP API.
 type LlamaCppEngine struct {
@@ -59,6 +69,12 @@ type LlamaCppEngine struct {
 	mmprojPath       string // optional multimodal projector for vision
 	port             int
 	dataDir          string
+	ctxSize          int
+	nGPULayers       int
+	flashAttn        string // "auto", "on", "off"
+
+	// Inference parameters (guarded by mu, can be updated live)
+	inferenceParams InferenceParams
 
 	// Runtime state (guarded by mu)
 	state    EngineState
@@ -77,8 +93,9 @@ type LlamaCppConfig struct {
 	MmprojPath       string // optional path to mmproj file for vision models
 	CtxSize          int
 	NGPULayers       int
-	FlashAttn        bool
+	FlashAttn        string // "auto", "on", "off"
 	DataDir          string // For resolving image URLs to disk paths
+	InferenceParams  InferenceParams
 }
 
 // NewLlamaCppEngine creates a new engine but does not start the server process.
@@ -106,6 +123,9 @@ func NewLlamaCppEngine(cfg LlamaCppConfig) (*LlamaCppEngine, error) {
 	if cfg.NGPULayers == 0 {
 		cfg.NGPULayers = 999
 	}
+	if cfg.FlashAttn == "" {
+		cfg.FlashAttn = "auto"
+	}
 
 	port, err := findAvailablePort()
 	if err != nil {
@@ -119,6 +139,10 @@ func NewLlamaCppEngine(cfg LlamaCppConfig) (*LlamaCppEngine, error) {
 		mmprojPath:       cfg.MmprojPath,
 		port:             port,
 		dataDir:          cfg.DataDir,
+		ctxSize:          cfg.CtxSize,
+		nGPULayers:       cfg.NGPULayers,
+		flashAttn:        cfg.FlashAttn,
+		inferenceParams:  cfg.InferenceParams,
 		state:            EngineStateIdle,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute,
@@ -143,9 +167,11 @@ func (e *LlamaCppEngine) Start() error {
 		"--model", e.modelPath,
 		"--host", "127.0.0.1",
 		"--port", fmt.Sprintf("%d", e.port),
-		"--ctx-size", "4096",
-		"--n-gpu-layers", "999",
-		"--flash-attn", "auto",
+		"--ctx-size", fmt.Sprintf("%d", e.ctxSize),
+		"--n-gpu-layers", fmt.Sprintf("%d", e.nGPULayers),
+	}
+	if e.flashAttn != "" && e.flashAttn != "off" {
+		args = append(args, "--flash-attn", e.flashAttn)
 	}
 	if e.mmprojPath != "" {
 		args = append(args, "--mmproj", e.mmprojPath)
@@ -351,6 +377,10 @@ func (e *LlamaCppEngine) ChatStream(ctx context.Context, messages []ChatMessage)
 	}
 
 	// Build OpenAI-compatible request
+	e.mu.RLock()
+	params := e.inferenceParams
+	e.mu.RUnlock()
+
 	oaiMsgs := make([]oaiMessage, 0, len(messages))
 	for _, m := range messages {
 		msg, err := e.buildOAIMessage(m)
@@ -360,24 +390,35 @@ func (e *LlamaCppEngine) ChatStream(ctx context.Context, messages []ChatMessage)
 		oaiMsgs = append(oaiMsgs, msg)
 	}
 
-	body, err := json.Marshal(oaiRequest{
-		Model:       e.modelName,
-		Messages:    oaiMsgs,
-		Stream:      true,
-		Temperature: 0.7,
-	})
+	req := oaiRequest{
+		Model:         e.modelName,
+		Messages:      oaiMsgs,
+		Stream:        true,
+		Temperature:   params.Temperature,
+		TopP:          params.TopP,
+		TopK:          params.TopK,
+		RepeatPenalty: params.RepeatPenalty,
+	}
+	if params.MaxTokens > 0 {
+		req.MaxTokens = params.MaxTokens
+	}
+	if params.Seed >= 0 {
+		req.Seed = params.Seed
+	}
+
+	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode request: %w", err)
 	}
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", port)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := e.httpClient.Do(req)
+	resp, err := e.httpClient.Do(httpReq)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -482,10 +523,15 @@ type oaiMessage struct {
 }
 
 type oaiRequest struct {
-	Model       string       `json:"model"`
-	Messages    []oaiMessage `json:"messages"`
-	Stream      bool         `json:"stream"`
-	Temperature float64      `json:"temperature,omitempty"`
+	Model         string       `json:"model"`
+	Messages      []oaiMessage `json:"messages"`
+	Stream        bool         `json:"stream"`
+	Temperature   float64      `json:"temperature,omitempty"`
+	TopP          float64      `json:"top_p,omitempty"`
+	TopK          int          `json:"top_k,omitempty"`
+	RepeatPenalty float64      `json:"repeat_penalty,omitempty"`
+	MaxTokens     int          `json:"max_tokens,omitempty"`
+	Seed          int          `json:"seed,omitempty"`
 }
 
 type oaiContentPart struct {
@@ -496,6 +542,14 @@ type oaiContentPart struct {
 
 type oaiImageURL struct {
 	URL string `json:"url"`
+}
+
+// SetInferenceParams updates the inference parameters used for new requests.
+// This does not require an engine restart.
+func (e *LlamaCppEngine) SetInferenceParams(p InferenceParams) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.inferenceParams = p
 }
 
 // HasVision reports whether this engine was started with a multimodal projector.

@@ -18,6 +18,9 @@ let models = $state<ModelInfo[]>([]);
 let engineStatus = $state<EngineStatus | null>(null);
 let statusPollTimer: ReturnType<typeof setInterval> | null = null;
 
+// --- Theme ---
+let currentTheme = $state<'light' | 'dark' | 'system'>('system');
+
 // --- UI ---
 let sidebarOpen = $state(true);
 let settingsOpen = $state(false);
@@ -70,6 +73,9 @@ export function getInitError() {
 export function getNotification() {
 	return notification;
 }
+export function getTheme() {
+	return currentTheme;
+}
 
 // --- Actions ---
 
@@ -101,6 +107,17 @@ export function dismissNotification() {
 	}
 }
 
+export function applyTheme(theme: 'light' | 'dark' | 'system') {
+	currentTheme = theme;
+	let effective: 'light' | 'dark';
+	if (theme === 'system') {
+		effective = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+	} else {
+		effective = theme;
+	}
+	document.documentElement.setAttribute('data-theme', effective);
+}
+
 export function cancelStream() {
 	if (streamAbortController) {
 		streamAbortController.abort();
@@ -113,17 +130,28 @@ export async function initApp() {
 	const maxRetries = 3;
 	const retryDelay = 1000;
 
+	// Listen for OS theme changes when using "system" theme
+	window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+		if (currentTheme === 'system') {
+			applyTheme('system');
+		}
+	});
+
 	for (let attempt = 0; attempt < maxRetries; attempt++) {
 		try {
-			const [convs, mdls, status] = await Promise.all([
+			const [convs, mdls, status, cfg] = await Promise.all([
 				api.listConversations(),
 				api.listModels(),
-				api.fetchStatus()
+				api.fetchStatus(),
+				api.getConfig()
 			]);
 			conversations = convs;
 			models = mdls;
 			engineStatus = status;
 			initError = null;
+
+			// Apply theme from config
+			applyTheme(cfg.theme || 'system');
 
 			// Auto-start status polling if engine is already loading a model
 			if (engineStatus?.engine_state === 'starting') {
@@ -316,5 +344,19 @@ export function stopStatusPolling() {
 	if (statusPollTimer) {
 		clearInterval(statusPollTimer);
 		statusPollTimer = null;
+	}
+}
+
+// --- Bulk Operations ---
+
+export async function deleteAllConversations() {
+	try {
+		await api.deleteAllConversations();
+		conversations = [];
+		activeConversationId = null;
+		messages = [];
+	} catch (err) {
+		console.error('Failed to delete all conversations:', err);
+		showNotification('Failed to delete conversations.');
 	}
 }

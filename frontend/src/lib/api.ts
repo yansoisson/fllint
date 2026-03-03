@@ -140,3 +140,41 @@ export async function updateConfig(config: Partial<AppConfig>): Promise<AppConfi
 		body: JSON.stringify(config)
 	});
 }
+
+// --- System Prompt ---
+
+export async function getDefaultSystemPrompt(): Promise<string> {
+	const res = await request<{ prompt: string }>('/config/system-prompt-default');
+	return res.prompt;
+}
+
+// --- Model Management ---
+
+export async function deleteModel(modelId: string): Promise<void> {
+	await request('/models/delete', {
+		method: 'POST',
+		body: JSON.stringify({ model_id: modelId })
+	});
+}
+
+export async function renameModel(modelId: string, name: string): Promise<void> {
+	await request('/models/rename', {
+		method: 'POST',
+		body: JSON.stringify({ model_id: modelId, name })
+	});
+}
+
+// --- Folder ---
+
+export async function openFolder(folder: 'models' | 'data'): Promise<void> {
+	await request('/open-folder', {
+		method: 'POST',
+		body: JSON.stringify({ folder })
+	});
+}
+
+// --- Bulk Operations ---
+
+export async function deleteAllConversations(): Promise<void> {
+	await fetch(`${BASE}/conversations`, { method: 'DELETE' });
+}

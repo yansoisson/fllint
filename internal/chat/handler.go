@@ -9,7 +9,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/fllint/fllint/internal/config"
 	"github.com/fllint/fllint/internal/llm"
+	"github.com/fllint/fllint/internal/prompt"
 )
 
 // Handler holds dependencies for chat HTTP handlers.
@@ -28,6 +30,7 @@ func (h *Handler) Routes() chi.Router {
 
 	r.Get("/conversations", h.listConversations)
 	r.Post("/conversations", h.createConversation)
+	r.Delete("/conversations", h.deleteAllConversations)
 	r.Get("/conversations/{id}", h.getConversation)
 	r.Delete("/conversations/{id}", h.deleteConversation)
 
@@ -107,8 +110,21 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build messages with system prompt prepended
+	cfg := config.Get()
+	systemContent := prompt.Build(cfg.SystemPrompt, cfg.CustomInstructions)
+
+	var engineMessages []llm.ChatMessage
+	if systemContent != "" {
+		engineMessages = append(engineMessages, llm.ChatMessage{
+			Role:    "system",
+			Content: systemContent,
+		})
+	}
+	engineMessages = append(engineMessages, conv.Messages...)
+
 	// Start streaming from engine
-	tokenCh, err := engine.ChatStream(r.Context(), conv.Messages)
+	tokenCh, err := engine.ChatStream(r.Context(), engineMessages)
 	if err != nil {
 		writeErrorJSON(w, http.StatusServiceUnavailable, "engine_error", err.Error())
 		return
@@ -192,6 +208,15 @@ func (h *Handler) getConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, conv)
+}
+
+func (h *Handler) deleteAllConversations(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.DeleteAll(); err != nil {
+		writeErrorJSON(w, http.StatusInternalServerError, "store_error",
+			"Failed to delete conversations.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) deleteConversation(w http.ResponseWriter, r *http.Request) {

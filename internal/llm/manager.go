@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/fllint/fllint/internal/config"
 )
 
 // ManagerStatus represents the overall system status visible to the frontend.
@@ -117,7 +120,7 @@ func (m *Manager) scanModels() []ModelInfo {
 		looseModels = append(looseModels, ModelInfo{
 			ID:       entry.Name(),
 			Name:     modelNameFromFilename(entry.Name()),
-			Tier:     tierFromSize(info.Size()),
+			Tier:     TierCustom,
 			FilePath: filepath.Join(m.modelsDir, entry.Name()),
 			Size:     info.Size(),
 		})
@@ -176,9 +179,16 @@ func (m *Manager) scanModelDir(dir string) *ModelInfo {
 	mi := &ModelInfo{
 		ID:       dirName + "/" + modelFile.Name(),
 		Name:     meta.Name,
-		Tier:     tierFromSize(info.Size()),
 		FilePath: filepath.Join(dir, modelFile.Name()),
 		Size:     info.Size(),
+	}
+
+	// Classify tier by directory name: Lite/Standard/Pro get their tier,
+	// everything else is Custom
+	if tier := tierFromDirName(dirName); tier != "" {
+		mi.Tier = tier
+	} else {
+		mi.Tier = TierCustom
 	}
 
 	if mmprojPath != "" {
@@ -302,15 +312,24 @@ func (m *Manager) SetActive(modelID string) error {
 		e.Stop()
 	}
 
+	cfg := config.Get()
 	engine, err := NewLlamaCppEngine(LlamaCppConfig{
 		ServerBinaryPath: m.serverBinaryPath,
 		ModelPath:        target.FilePath,
 		ModelName:        target.Name,
 		MmprojPath:       target.MmprojPath,
-		CtxSize:          4096,
-		NGPULayers:       999,
-		FlashAttn:        true,
+		CtxSize:          cfg.CtxSize,
+		NGPULayers:       cfg.NGPULayers,
+		FlashAttn:        cfg.FlashAttn,
 		DataDir:          m.dataDir,
+		InferenceParams: InferenceParams{
+			Temperature:   cfg.Temperature,
+			TopP:          cfg.TopP,
+			TopK:          cfg.TopK,
+			RepeatPenalty: cfg.RepeatPenalty,
+			MaxTokens:     cfg.MaxTokens,
+			Seed:          cfg.Seed,
+		},
 	})
 	if err != nil {
 		m.engine = nil
@@ -362,6 +381,83 @@ func (m *Manager) Status() ManagerStatus {
 	}
 
 	return status
+}
+
+// DeleteModel removes a model's files from disk. The model must not be
+// currently active.
+func (m *Manager) DeleteModel(modelID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var target *ModelInfo
+	var targetIdx int
+	for i := range m.models {
+		if m.models[i].ID == modelID {
+			target = &m.models[i]
+			targetIdx = i
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("Model %q not found.", modelID)
+	}
+	if target.Active {
+		return fmt.Errorf("Cannot delete the active model. Switch to a different model first.")
+	}
+
+	// Delete model file
+	if err := os.Remove(target.FilePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("Failed to delete model file: %w", err)
+	}
+
+	// Delete mmproj if present
+	if target.MmprojPath != "" {
+		os.Remove(target.MmprojPath)
+	}
+
+	// Try removing the subdirectory (only succeeds if empty)
+	modelDir := filepath.Dir(target.FilePath)
+	if modelDir != m.modelsDir {
+		os.Remove(modelDir)
+	}
+
+	// Remove from list
+	m.models = append(m.models[:targetIdx], m.models[targetIdx+1:]...)
+	return nil
+}
+
+// RenameModel updates the display name of a model in its model.json file.
+func (m *Manager) RenameModel(modelID string, newName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	newName = strings.TrimSpace(newName)
+	if newName == "" {
+		return fmt.Errorf("Model name cannot be empty.")
+	}
+
+	for i := range m.models {
+		if m.models[i].ID == modelID {
+			modelDir := filepath.Dir(m.models[i].FilePath)
+			if modelDir == m.modelsDir {
+				return fmt.Errorf("Loose model files cannot be renamed. Move the model to a subfolder first.")
+			}
+
+			meta := ModelMeta{Name: newName}
+			metaPath := filepath.Join(modelDir, modelMetaFile)
+			data, err := json.MarshalIndent(meta, "", "  ")
+			if err != nil {
+				return fmt.Errorf("Failed to save model name: %w", err)
+			}
+			if err := os.WriteFile(metaPath, append(data, '\n'), 0644); err != nil {
+				return fmt.Errorf("Failed to save model name: %w", err)
+			}
+
+			m.models[i].Name = newName
+			return nil
+		}
+	}
+	return fmt.Errorf("Model %q not found.", modelID)
 }
 
 // Stop gracefully shuts down the active engine. Called on app exit.

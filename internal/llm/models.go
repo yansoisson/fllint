@@ -15,6 +15,7 @@ const (
 	TierLite     Tier = "lite"
 	TierStandard Tier = "standard"
 	TierPro      Tier = "pro"
+	TierCustom   Tier = "custom"
 )
 
 // ModelInfo describes a model available to the application.
@@ -76,6 +77,22 @@ func loadOrCreateModelMeta(dir string, defaultName string) ModelMeta {
 		}
 	}
 	return meta
+}
+
+// tierFromDirName returns a tier based on the subdirectory name.
+// Only directories named exactly "Lite", "Standard", or "Pro" (case-insensitive)
+// get tier labels. Returns empty string for all other names.
+func tierFromDirName(dirName string) Tier {
+	switch strings.ToLower(dirName) {
+	case "lite":
+		return TierLite
+	case "standard":
+		return TierStandard
+	case "pro":
+		return TierPro
+	default:
+		return ""
+	}
 }
 
 // tierFromSize classifies a model by file size.
