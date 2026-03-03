@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -58,18 +59,24 @@ func Run(frontendFS fs.FS) {
 		Handler: srv,
 	}
 
-	// Start HTTP server in background
+	// Start HTTP server in background — errors go to channel instead of log.Fatalf
+	serverErr := make(chan error, 1)
 	go func() {
 		log.Printf("Fllint server starting on http://localhost%s", srv.Addr())
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("HTTP server error: %v", err)
+			serverErr <- err
 		}
 	}()
 
-	// Open browser after a brief delay for server to start
+	// Wait for server to be reachable before proceeding (no blind delay)
 	url := fmt.Sprintf("http://localhost%s", srv.Addr())
+	if err := waitForServer(srv.Addr(), 5*time.Second); err != nil {
+		log.Fatalf("Failed to start HTTP server: %v", err)
+	}
+	log.Printf("Fllint ready at %s", url)
+
+	// Server is confirmed up — open browser
 	go func() {
-		time.Sleep(300 * time.Millisecond)
 		if err := launcher.OpenBrowser(url); err != nil {
 			log.Printf("Could not open browser: %v (open %s manually)", err, url)
 		}
@@ -86,6 +93,15 @@ func Run(frontendFS fs.FS) {
 			llmManager.Stop()
 		})
 	}
+
+	// Monitor HTTP server — if it dies unexpectedly, shut everything down
+	go func() {
+		if err, ok := <-serverErr; ok {
+			log.Printf("HTTP server died: %v", err)
+			shutdown()
+			launcher.QuitTray()
+		}
+	}()
 
 	// Handle graceful shutdown in background
 	go func() {
@@ -104,4 +120,19 @@ func Run(frontendFS fs.FS) {
 	)
 
 	log.Println("Fllint stopped.")
+}
+
+// waitForServer blocks until the given address is accepting TCP connections,
+// or returns an error if the timeout is exceeded.
+func waitForServer(addr string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("server did not start within %s", timeout)
 }
