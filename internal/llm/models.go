@@ -1,6 +1,9 @@
 package llm
 
 import (
+	"encoding/json"
+	"log"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -41,6 +44,38 @@ func modelNameFromFilename(filename string) string {
 		}
 	}
 	return strings.Join(words, " ")
+}
+
+// ModelMeta holds user-facing metadata stored in model.json alongside the
+// .gguf files. The struct is designed to be extended with new fields over time.
+type ModelMeta struct {
+	Name string `json:"name"`
+}
+
+const modelMetaFile = "model.json"
+
+// loadOrCreateModelMeta reads model.json from dir. If the file does not exist
+// it creates one with defaultName and returns it.
+func loadOrCreateModelMeta(dir string, defaultName string) ModelMeta {
+	metaPath := filepath.Join(dir, modelMetaFile)
+
+	data, err := os.ReadFile(metaPath)
+	if err == nil {
+		var meta ModelMeta
+		if err := json.Unmarshal(data, &meta); err == nil && meta.Name != "" {
+			return meta
+		}
+	}
+
+	// File missing or invalid — create with defaults
+	meta := ModelMeta{Name: defaultName}
+	out, err := json.MarshalIndent(meta, "", "  ")
+	if err == nil {
+		if err := os.WriteFile(metaPath, append(out, '\n'), 0644); err != nil {
+			log.Printf("Could not write %s: %v", metaPath, err)
+		}
+	}
+	return meta
 }
 
 // tierFromSize classifies a model by file size.

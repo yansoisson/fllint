@@ -168,11 +168,14 @@ func (m *Manager) scanModelDir(dir string) *ModelInfo {
 		return nil
 	}
 
+	// Load or create model.json for display name
+	meta := loadOrCreateModelMeta(dir, modelNameFromFilename(modelFile.Name()))
+
 	// Use "dirname/filename" as the ID so it stays unique across folders
 	dirName := filepath.Base(dir)
 	mi := &ModelInfo{
 		ID:       dirName + "/" + modelFile.Name(),
-		Name:     modelNameFromFilename(modelFile.Name()),
+		Name:     meta.Name,
 		Tier:     tierFromSize(info.Size()),
 		FilePath: filepath.Join(dir, modelFile.Name()),
 		Size:     info.Size(),
