@@ -19,12 +19,13 @@ run: build
 
 # --- Development ---
 
-# Run both servers concurrently
+# Run both servers concurrently (trap ensures Go backend is killed when Vite exits)
 dev:
 	@echo "Starting Go backend on :8420 and Vite dev server on :5173..."
 	@echo "Open http://localhost:5173 for development"
-	@$(MAKE) dev-backend &
-	@$(MAKE) dev-frontend
+	@trap 'kill 0' EXIT; \
+	 go run -tags dev . & \
+	 cd frontend && npm run dev
 
 # Frontend dev server (Vite with HMR, proxies /api to Go)
 dev-frontend:

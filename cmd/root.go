@@ -54,16 +54,22 @@ func Run(frontendFS fs.FS) {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
+	// Bind the port synchronously — if another Fllint is running, exit immediately
+	// (before creating a systray that would become a ghost entry)
+	listener, err := net.Listen("tcp", srv.Addr())
+	if err != nil {
+		log.Fatalf("Port %s is already in use — is another Fllint instance running?", srv.Addr())
+	}
+
 	httpServer := &http.Server{
-		Addr:    srv.Addr(),
 		Handler: srv,
 	}
 
-	// Start HTTP server in background — errors go to channel instead of log.Fatalf
+	// Start HTTP server on the already-bound listener
 	serverErr := make(chan error, 1)
 	go func() {
 		log.Printf("Fllint server starting on http://localhost%s", srv.Addr())
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			serverErr <- err
 		}
 	}()
