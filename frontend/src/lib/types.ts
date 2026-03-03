@@ -29,6 +29,16 @@ export interface AppConfig {
 export interface SSEToken {
 	content?: string;
 	conversation_id?: string;
+	error?: string;
+	code?: string;
+}
+
+export interface EngineStatus {
+	engine_state: 'idle' | 'starting' | 'ready' | 'error' | 'stopping';
+	error?: string;
+	model_name?: string;
+	has_binary: boolean;
+	has_models: boolean;
 }
 
 export interface ImageUploadResult {

@@ -4,11 +4,12 @@
 	import InputBar from '$components/InputBar.svelte';
 	import ModelSelector from '$components/ModelSelector.svelte';
 	import Settings from '$components/Settings.svelte';
-	import { loadConversations, loadModels, toggleSidebar, toggleSettings } from '$lib/stores.svelte';
+	import { loadConversations, loadModels, loadStatus, toggleSidebar, toggleSettings } from '$lib/stores.svelte';
 
 	$effect(() => {
 		loadConversations();
 		loadModels();
+		loadStatus();
 	});
 </script>
 

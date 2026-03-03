@@ -3,7 +3,8 @@ import type {
 	ModelInfo,
 	AppConfig,
 	SSEToken,
-	ImageUploadResult
+	ImageUploadResult,
+	EngineStatus
 } from './types';
 
 const BASE = '/api';
@@ -53,7 +54,10 @@ export async function* streamChat(
 		})
 	});
 
-	if (!res.ok) throw new Error(`Chat error: ${res.status}`);
+	if (!res.ok) {
+		const body = await res.json().catch(() => null);
+		throw new Error(body?.error ?? `Chat error: ${res.status}`);
+	}
 	if (!res.body) throw new Error('No response body');
 
 	const reader = res.body.getReader();
@@ -92,6 +96,16 @@ export async function setActiveModel(modelId: string): Promise<void> {
 		method: 'PUT',
 		body: JSON.stringify({ model_id: modelId })
 	});
+}
+
+export async function refreshModels(): Promise<ModelInfo[]> {
+	return request('/models/refresh', { method: 'POST' });
+}
+
+// --- Status ---
+
+export async function fetchStatus(): Promise<EngineStatus> {
+	return request('/status');
 }
 
 // --- Image Upload ---

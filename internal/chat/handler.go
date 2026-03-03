@@ -42,12 +42,20 @@ type chatRequest struct {
 func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	var req chatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
 		return
 	}
 
 	if req.Content == "" {
-		http.Error(w, "content is required", http.StatusBadRequest)
+		writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Message content is required.")
+		return
+	}
+
+	// Check that an engine is available before doing anything else
+	engine := h.manager.Engine()
+	if engine == nil {
+		writeErrorJSON(w, http.StatusServiceUnavailable, "no_model",
+			"No model is loaded. Select a model to get started.")
 		return
 	}
 
@@ -61,13 +69,15 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		conv, err = h.store.Create(title)
 		if err != nil {
-			http.Error(w, "failed to create conversation", http.StatusInternalServerError)
+			writeErrorJSON(w, http.StatusInternalServerError, "store_error",
+				"Failed to create conversation.")
 			return
 		}
 	} else {
 		conv, err = h.store.Get(req.ConversationID)
 		if err != nil {
-			http.Error(w, "conversation not found", http.StatusNotFound)
+			writeErrorJSON(w, http.StatusNotFound, "not_found",
+				"Conversation not found.")
 			return
 		}
 	}
@@ -76,21 +86,22 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	userMsg := llm.ChatMessage{Role: "user", Content: req.Content}
 	conv, err = h.store.AppendMessage(conv.ID, userMsg)
 	if err != nil {
-		http.Error(w, "failed to save message", http.StatusInternalServerError)
+		writeErrorJSON(w, http.StatusInternalServerError, "store_error",
+			"Failed to save message.")
 		return
 	}
 
 	// Start streaming from engine
-	engine := h.manager.Engine()
 	tokenCh, err := engine.ChatStream(r.Context(), conv.Messages)
 	if err != nil {
-		http.Error(w, "engine error: "+err.Error(), http.StatusInternalServerError)
+		writeErrorJSON(w, http.StatusServiceUnavailable, "engine_error", err.Error())
 		return
 	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		writeErrorJSON(w, http.StatusInternalServerError, "server_error",
+			"Streaming not supported.")
 		return
 	}
 
@@ -118,8 +129,10 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	// Persist assistant response
-	assistantMsg := llm.ChatMessage{Role: "assistant", Content: fullResponse}
-	h.store.AppendMessage(conv.ID, assistantMsg)
+	if fullResponse != "" {
+		assistantMsg := llm.ChatMessage{Role: "assistant", Content: fullResponse}
+		h.store.AppendMessage(conv.ID, assistantMsg)
+	}
 }
 
 func (h *Handler) listConversations(w http.ResponseWriter, r *http.Request) {
@@ -176,4 +189,15 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+type apiError struct {
+	Error string `json:"error"`
+	Code  string `json:"code"`
+}
+
+func writeErrorJSON(w http.ResponseWriter, status int, code string, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(apiError{Error: message, Code: code})
 }

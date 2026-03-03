@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -44,8 +45,16 @@ func Run(frontendFS fs.FS) {
 	os.MkdirAll(cfg.DataDir, 0755)
 	os.MkdirAll(cfg.ModelsDir, 0755)
 
-	// Initialize LLM manager (stub engine for now)
-	llmManager := llm.NewManager()
+	// Discover llama-server binary
+	binDir := os.Getenv("FLLINT_BIN_DIR")
+	if binDir == "" {
+		binDir = "./bin"
+	}
+	os.MkdirAll(binDir, 0755)
+	serverBinaryPath := filepath.Join(binDir, "llama-server")
+
+	// Initialize LLM manager with real model discovery
+	llmManager := llm.NewManager(serverBinaryPath, cfg.ModelsDir)
 
 	// Create HTTP server
 	srv, err := server.New(cfg, frontendFS, llmManager)
@@ -81,9 +90,10 @@ func Run(frontendFS fs.FS) {
 		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 		<-sigCh
 		log.Println("Received interrupt signal, shutting down...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		httpServer.Shutdown(shutdownCtx)
+		llmManager.Stop()
 		launcher.QuitTray()
 	}()
 
@@ -92,11 +102,12 @@ func Run(frontendFS fs.FS) {
 	launcher.RunTray(
 		func() { launcher.OpenBrowser(url) },
 		func() {
-			// onQuit: shut down the HTTP server
+			// onQuit: shut down the HTTP server and LLM engine
 			log.Println("Quit from tray, shutting down...")
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			httpServer.Shutdown(shutdownCtx)
+			llmManager.Stop()
 		},
 	)
 

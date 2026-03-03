@@ -4,6 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Always take a look at README.md to build a deep understanding of the project and its purpose.
 
+Remember that the 1 folder philosophy is essential, you should never forget that. And that the project isn't only for nerds, so the entire system should be extremely robust with a good UX (clean error messages for everything that can go wrong), never forget that too.
+
+Push to github is already configured too (just use git push -u origin main to push after commit)
+
 ## Build & Development Commands
 
 ```bash
@@ -31,7 +35,7 @@ Single-binary local AI chat app. Go backend serves a SvelteKit SPA embedded via 
 
 - **Entry points**: `main.go` (prod, embeds frontend) / `main_dev.go` (dev, skips embed) — controlled by `//go:build dev` tag
 - **Bootstrap**: `cmd/root.go` — loads config, creates managers, starts HTTP server, opens browser, runs systray on main goroutine (macOS AppKit requirement)
-- **`internal/llm/`**: `Engine` interface with `ChatStream` returning `<-chan Token`. Currently uses `StubEngine`. `Manager` handles model switching with RWMutex.
+- **`internal/llm/`**: `Engine` interface with `ChatStream` returning `<-chan Token`. `LlamaCppEngine` manages a `llama-server` child process and talks to it via OpenAI-compatible HTTP API (`/v1/chat/completions`). `Manager` handles model discovery (scans `modelsDir/` for `.gguf` files), engine lifecycle, and model switching with RWMutex. `StubEngine` kept for development.
 - **`internal/chat/`**: SSE streaming handler (`http.Flusher`), conversation CRUD. `Store` persists conversations as individual JSON files in `{dataDir}/conversations/`.
 - **`internal/server/`**: chi router, middleware stack, SPA fallback serving. No `middleware.Timeout` — it wraps ResponseWriter and breaks SSE Flusher.
 - **`internal/config/`**: JSON config with env var overrides (`FLLINT_PORT`, `FLLINT_DATA_DIR`, `FLLINT_MODELS_DIR`)
@@ -58,13 +62,24 @@ Single-binary local AI chat app. Go backend serves a SvelteKit SPA embedded via 
 
 All under `/api/`:
 - `GET/POST /conversations`, `GET/DELETE /conversations/{id}` — conversation CRUD
-- `POST /chat` — SSE streaming chat endpoint
-- `GET /models`, `PUT /models/active` — model management
+- `POST /chat` — SSE streaming chat endpoint (returns structured JSON errors with `{error, code}`)
+- `GET /models`, `PUT /models/active`, `POST /models/refresh` — model management
+- `GET /status` — engine status (`{engine_state, error, model_name, has_binary, has_models}`)
 - `POST /image/upload`, `GET /uploads/*` — image handling
 - `GET/PUT /config` — app configuration
+
+## LLM Backend (llama.cpp)
+
+- **Binary**: `bin/llama-server` — user-provided, discovered on startup
+- **Models**: `models/*.gguf` — scanned on startup and via `/api/models/refresh`
+- **Engine state machine**: `idle → starting → ready → error/stopping`
+- **Process management**: child process with SIGTERM→SIGKILL shutdown, health poll via `GET /health`, crash detection
+- **Streaming**: POST to `/v1/chat/completions` with `stream: true`, parse OpenAI SSE format
+- **Port**: OS-assigned random available port per engine instance
 
 ## Environment Variables
 
 - `FLLINT_PORT` (default: 8420)
 - `FLLINT_DATA_DIR` (default: ./data)
 - `FLLINT_MODELS_DIR` (default: ./models)
+- `FLLINT_BIN_DIR` (default: ./bin)

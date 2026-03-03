@@ -1,15 +1,21 @@
 <script lang="ts">
 	import MessageBubble from './MessageBubble.svelte';
-	import { getMessages, getIsStreaming, getStreamingContent } from '$lib/stores.svelte';
+	import {
+		getMessages,
+		getIsStreaming,
+		getStreamingContent,
+		getEngineStatus,
+		getChatError,
+		clearChatError,
+		refreshModels
+	} from '$lib/stores.svelte';
 
 	let chatContainer: HTMLDivElement;
 
 	$effect(() => {
-		// Trigger on messages or streaming content changes
 		const _ = getMessages();
 		const __ = getStreamingContent();
 		if (chatContainer) {
-			// Use tick-like delay to scroll after DOM update
 			requestAnimationFrame(() => {
 				chatContainer.scrollTop = chatContainer.scrollHeight;
 			});
@@ -26,10 +32,59 @@
 		<MessageBubble message={{ role: 'assistant', content: getStreamingContent() }} />
 	{/if}
 
+	{#if getChatError()}
+		<div class="error-banner">
+			<span>{getChatError()}</span>
+			<button class="dismiss-btn" onclick={clearChatError}>Dismiss</button>
+		</div>
+	{/if}
+
 	{#if getMessages().length === 0 && !getIsStreaming()}
 		<div class="empty">
-			<h2>Welcome to Fllint</h2>
-			<p>Start a conversation by typing a message below.</p>
+			{#if !getEngineStatus()?.has_binary && !getEngineStatus()?.has_models}
+				<h2>Welcome to Fllint</h2>
+				<p>To get started, you need two things:</p>
+				<div class="setup-steps">
+					<div class="step">
+						<strong>1. llama-server</strong>
+						<span>Download from llama.cpp releases and place in <code>bin/</code></span>
+					</div>
+					<div class="step">
+						<strong>2. A model file</strong>
+						<span>Download a .gguf model and place in <code>models/</code></span>
+					</div>
+				</div>
+				<button class="refresh-btn" onclick={refreshModels}>
+					I've placed the files — refresh
+				</button>
+			{:else if !getEngineStatus()?.has_binary}
+				<h2>Almost there</h2>
+				<p>
+					Model files found, but llama-server is missing.
+					Place it in the <code>bin/</code> folder.
+				</p>
+				<button class="refresh-btn" onclick={refreshModels}>Refresh</button>
+			{:else if !getEngineStatus()?.has_models}
+				<h2>Almost there</h2>
+				<p>
+					llama-server is ready, but no models found.
+					Place a .gguf model file in the <code>models/</code> folder.
+				</p>
+				<button class="refresh-btn" onclick={refreshModels}>Refresh</button>
+			{:else if getEngineStatus()?.engine_state === 'starting'}
+				<h2>Loading model...</h2>
+				<p>This can take a minute for larger models.</p>
+				<div class="spinner"></div>
+			{:else if getEngineStatus()?.engine_state === 'error'}
+				<h2>Something went wrong</h2>
+				<p class="error-text">{getEngineStatus()?.error}</p>
+			{:else if getEngineStatus()?.engine_state === 'idle'}
+				<h2>Welcome to Fllint</h2>
+				<p>Select a model from the dropdown above to get started.</p>
+			{:else}
+				<h2>Welcome to Fllint</h2>
+				<p>Start a conversation by typing a message below.</p>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -51,12 +106,117 @@
 		justify-content: center;
 		color: var(--text-muted);
 		text-align: center;
+		gap: 8px;
 	}
 
 	.empty h2 {
-		margin-bottom: 8px;
+		margin-bottom: 4px;
 		font-weight: 500;
 		color: var(--text-secondary);
 		font-size: 1.4rem;
+	}
+
+	.empty code {
+		background: var(--bg-tertiary);
+		padding: 2px 6px;
+		border-radius: 4px;
+		font-size: 0.85em;
+	}
+
+	.setup-steps {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		margin: 16px 0;
+		text-align: left;
+		max-width: 400px;
+	}
+
+	.step {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: 12px;
+		border-radius: var(--radius);
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+	}
+
+	.step strong {
+		color: var(--text-primary);
+	}
+
+	.step span {
+		font-size: 0.9em;
+	}
+
+	.refresh-btn {
+		margin-top: 12px;
+		padding: 8px 20px;
+		border-radius: var(--radius);
+		background: var(--accent);
+		color: white;
+		font-size: 0.9rem;
+		cursor: pointer;
+		transition: opacity var(--transition);
+	}
+
+	.refresh-btn:hover {
+		opacity: 0.9;
+	}
+
+	.spinner {
+		width: 24px;
+		height: 24px;
+		border: 3px solid var(--border);
+		border-top-color: var(--accent);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+		margin-top: 8px;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.error-text {
+		color: var(--text-primary);
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		padding: 12px 16px;
+		border-radius: var(--radius);
+		max-width: 500px;
+		font-size: 0.9em;
+	}
+
+	.error-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 10px 16px;
+		margin-top: 8px;
+		border-radius: var(--radius);
+		background: #3a1c1c;
+		border: 1px solid #5a2d2d;
+		color: #f5a5a5;
+		font-size: 0.9em;
+	}
+
+	.dismiss-btn {
+		padding: 4px 10px;
+		border-radius: var(--radius);
+		background: transparent;
+		border: 1px solid #5a2d2d;
+		color: #f5a5a5;
+		font-size: 0.8em;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.dismiss-btn:hover {
+		background: #5a2d2d;
 	}
 </style>

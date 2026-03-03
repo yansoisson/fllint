@@ -52,6 +52,9 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager) (*Server
 
 		r.Get("/models", s.listModels)
 		r.Put("/models/active", s.setActiveModel)
+		r.Post("/models/refresh", s.refreshModels)
+
+		r.Get("/status", s.getStatus)
 
 		r.Post("/image/upload", imgHandler.Upload)
 		r.Handle("/uploads/*", imgHandler.Serve())
@@ -92,10 +95,22 @@ func (s *Server) setActiveModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.llmManager.SetActive(req.ModelID); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) refreshModels(w http.ResponseWriter, r *http.Request) {
+	s.llmManager.RefreshModels()
+	models := s.llmManager.ListModels()
+	respondJSON(w, http.StatusOK, models)
+}
+
+// --- Status handler ---
+
+func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, s.llmManager.Status())
 }
 
 // --- Config handlers ---

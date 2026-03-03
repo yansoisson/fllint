@@ -41,9 +41,9 @@ vite.config.ts.timestamp-*
 # llama.cpp / Models
 # -----------------------------------------------------------------------------
 *.gguf
-*.bin
 *.ggml
 models/
+bin/
 
 # -----------------------------------------------------------------------------
 # Runtime data
@@ -85,3 +85,6 @@ $RECYCLE.BIN/
 .env
 .env.*
 !.env.example
+
+
+llama-b8192-bin-macos-arm64.tar
