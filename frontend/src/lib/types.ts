@@ -1,6 +1,7 @@
 export interface ChatMessage {
 	role: 'user' | 'assistant' | 'system';
 	content: string;
+	images?: string[];
 }
 
 export interface Conversation {
@@ -39,6 +40,7 @@ export interface EngineStatus {
 	model_name?: string;
 	has_binary: boolean;
 	has_models: boolean;
+	has_vision: boolean;
 }
 
 export interface ImageUploadResult {

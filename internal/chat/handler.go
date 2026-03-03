@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -35,8 +36,9 @@ func (h *Handler) Routes() chi.Router {
 }
 
 type chatRequest struct {
-	ConversationID string `json:"conversation_id"`
-	Content        string `json:"content"`
+	ConversationID string   `json:"conversation_id"`
+	Content        string   `json:"content"`
+	Images         []string `json:"images,omitempty"`
 }
 
 func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
@@ -46,9 +48,22 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Content == "" {
-		writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Message content is required.")
+	if req.Content == "" && len(req.Images) == 0 {
+		writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Message content or at least one image is required.")
 		return
+	}
+
+	// Validate image URLs
+	for _, imgURL := range req.Images {
+		if !strings.HasPrefix(imgURL, "/api/uploads/") {
+			writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid image URL: must start with /api/uploads/")
+			return
+		}
+		filename := strings.TrimPrefix(imgURL, "/api/uploads/")
+		if strings.Contains(filename, "/") || strings.Contains(filename, "..") || filename == "" {
+			writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid image URL: contains invalid characters.")
+			return
+		}
 	}
 
 	// Check that an engine is available before doing anything else
@@ -83,7 +98,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Append user message
-	userMsg := llm.ChatMessage{Role: "user", Content: req.Content}
+	userMsg := llm.ChatMessage{Role: "user", Content: req.Content, Images: req.Images}
 	conv, err = h.store.AppendMessage(conv.ID, userMsg)
 	if err != nil {
 		writeErrorJSON(w, http.StatusInternalServerError, "store_error",

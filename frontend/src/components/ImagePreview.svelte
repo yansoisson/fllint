@@ -1,19 +1,29 @@
 <script lang="ts">
-	import { getPendingImage, setPendingImage } from '$lib/stores.svelte';
+	import { getPendingImages, removePendingImage } from '$lib/stores.svelte';
 </script>
 
-{#if getPendingImage()}
-	<div class="preview">
-		<img src={getPendingImage()?.preview} alt="Upload preview" />
-		<button class="remove" onclick={() => setPendingImage(null)}>&times;</button>
+{#if getPendingImages().length > 0}
+	<div class="previews">
+		{#each getPendingImages() as img, i}
+			<div class="preview">
+				<img src={img.preview} alt="Upload preview" />
+				<button class="remove" onclick={() => removePendingImage(i)}>&times;</button>
+			</div>
+		{/each}
 	</div>
 {/if}
 
 <style>
+	.previews {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin: 4px 8px 4px 12px;
+	}
+
 	.preview {
 		position: relative;
 		display: inline-block;
-		margin: 4px 8px 4px 12px;
 	}
 
 	img {

@@ -20,7 +20,7 @@ let statusPollTimer: ReturnType<typeof setInterval> | null = null;
 // --- UI ---
 let sidebarOpen = $state(true);
 let settingsOpen = $state(false);
-let pendingImage = $state<{ file: File; preview: string } | null>(null);
+let pendingImages = $state<{ file: File; preview: string }[]>([]);
 let chatError = $state<string | null>(null);
 
 // --- Getters ---
@@ -51,8 +51,8 @@ export function getSidebarOpen() {
 export function getSettingsOpen() {
 	return settingsOpen;
 }
-export function getPendingImage() {
-	return pendingImage;
+export function getPendingImages() {
+	return pendingImages;
 }
 export function getEngineStatus() {
 	return engineStatus;
@@ -75,15 +75,21 @@ export function clearChatError() {
 	chatError = null;
 }
 
-export function setPendingImage(file: File | null) {
-	if (pendingImage?.preview) {
-		URL.revokeObjectURL(pendingImage.preview);
+export function addPendingImage(file: File) {
+	pendingImages = [...pendingImages, { file, preview: URL.createObjectURL(file) }];
+}
+
+export function removePendingImage(index: number) {
+	const removed = pendingImages[index];
+	if (removed) {
+		URL.revokeObjectURL(removed.preview);
 	}
-	if (file) {
-		pendingImage = { file, preview: URL.createObjectURL(file) };
-	} else {
-		pendingImage = null;
-	}
+	pendingImages = pendingImages.filter((_, i) => i !== index);
+}
+
+export function clearPendingImages() {
+	pendingImages.forEach((img) => URL.revokeObjectURL(img.preview));
+	pendingImages = [];
 }
 
 export async function loadConversations() {
@@ -125,12 +131,38 @@ export async function deleteConversation(id: string) {
 
 export async function sendMessage(content: string) {
 	chatError = null;
-	messages = [...messages, { role: 'user', content }];
+
+	// Upload pending images first
+	let imageUrls: string[] = [];
+	if (pendingImages.length > 0) {
+		try {
+			const uploads = await Promise.all(
+				pendingImages.map((img) => api.uploadImage(img.file))
+			);
+			imageUrls = uploads.map((result) => result.url);
+		} catch {
+			chatError = 'Failed to upload image. Please try again.';
+			return;
+		}
+		clearPendingImages();
+	}
+
+	// Build user message with images for local display
+	const userMsg: ChatMessage = { role: 'user', content };
+	if (imageUrls.length > 0) {
+		userMsg.images = imageUrls;
+	}
+	messages = [...messages, userMsg];
+
 	isStreaming = true;
 	streamingContent = '';
 
 	try {
-		for await (const token of api.streamChat(content, activeConversationId ?? undefined)) {
+		for await (const token of api.streamChat(
+			content,
+			activeConversationId ?? undefined,
+			imageUrls.length > 0 ? imageUrls : undefined
+		)) {
 			if (token.conversation_id && !activeConversationId) {
 				activeConversationId = token.conversation_id;
 			}

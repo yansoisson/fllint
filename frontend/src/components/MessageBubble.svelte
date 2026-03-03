@@ -7,7 +7,17 @@
 
 <div class="message {message.role}">
 	{#if message.role === 'user'}
-		<div class="content">{message.content}</div>
+		{#if message.images?.length}
+			<div class="images">
+				{#each message.images as src}
+					<!-- svelte-ignore a11y_img_redundant_alt -->
+					<img {src} alt="Attached image" class="chat-image" />
+				{/each}
+			</div>
+		{/if}
+		{#if message.content}
+			<div class="content">{message.content}</div>
+		{/if}
 	{:else}
 		<div class="content prose">{@html renderMarkdown(message.content)}</div>
 	{/if}
@@ -34,6 +44,22 @@
 		border-radius: 20px;
 		max-width: 85%;
 		white-space: pre-wrap;
+	}
+
+	.images {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		justify-content: flex-end;
+		margin-bottom: 8px;
+	}
+
+	.chat-image {
+		max-height: 200px;
+		max-width: 300px;
+		border-radius: 12px;
+		border: 1px solid var(--border);
+		object-fit: cover;
 	}
 
 	.assistant {

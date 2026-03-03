@@ -54,7 +54,7 @@ func Run(frontendFS fs.FS) {
 	serverBinaryPath := filepath.Join(binDir, "llama-server")
 
 	// Initialize LLM manager with real model discovery
-	llmManager := llm.NewManager(serverBinaryPath, cfg.ModelsDir)
+	llmManager := llm.NewManager(serverBinaryPath, cfg.ModelsDir, cfg.DataDir)
 
 	// Create HTTP server
 	srv, err := server.New(cfg, frontendFS, llmManager)

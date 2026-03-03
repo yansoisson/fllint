@@ -43,14 +43,16 @@ export async function deleteConversation(id: string): Promise<void> {
 
 export async function* streamChat(
 	content: string,
-	conversationId?: string
+	conversationId?: string,
+	images?: string[]
 ): AsyncGenerator<SSEToken, void, undefined> {
 	const res = await fetch(`${BASE}/chat`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
 			content,
-			conversation_id: conversationId ?? ''
+			conversation_id: conversationId ?? '',
+			images: images?.length ? images : undefined
 		})
 	});
 

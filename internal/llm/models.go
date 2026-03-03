@@ -16,12 +16,14 @@ const (
 
 // ModelInfo describes a model available to the application.
 type ModelInfo struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Tier     Tier   `json:"tier"`
-	FilePath string `json:"file_path,omitempty"`
-	Size     int64  `json:"size,omitempty"`
-	Active   bool   `json:"active"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Tier       Tier   `json:"tier"`
+	FilePath   string `json:"file_path,omitempty"`
+	MmprojPath string `json:"mmproj_path,omitempty"` // path to vision projector file
+	Size       int64  `json:"size,omitempty"`
+	Active     bool   `json:"active"`
+	Vision     bool   `json:"vision"` // true if mmproj file is available
 }
 
 // modelNameFromFilename derives a human-readable name from a GGUF filename.

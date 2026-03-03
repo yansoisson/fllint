@@ -1,11 +1,11 @@
 <script lang="ts">
 	import ImagePreview from './ImagePreview.svelte';
-	import { sendMessage, getIsStreaming, setPendingImage, getPendingImage } from '$lib/stores.svelte';
-	import { uploadImage } from '$lib/api';
+	import { sendMessage, getIsStreaming, addPendingImage, getPendingImages, getEngineStatus } from '$lib/stores.svelte';
 
 	let inputText = $state('');
 	let fileInput: HTMLInputElement;
 	let textareaEl: HTMLTextAreaElement;
+	let isDragOver = $state(false);
 
 	function autoResize() {
 		if (textareaEl) {
@@ -16,16 +16,7 @@
 
 	async function handleSubmit() {
 		const text = inputText.trim();
-		if (!text || getIsStreaming()) return;
-
-		if (getPendingImage()) {
-			try {
-				await uploadImage(getPendingImage()!.file);
-			} catch (err) {
-				console.error('Image upload failed:', err);
-			}
-			setPendingImage(null);
-		}
+		if ((!text && getPendingImages().length === 0) || getIsStreaming()) return;
 
 		inputText = '';
 		if (textareaEl) {
@@ -43,25 +34,60 @@
 
 	function handleFileChange(e: Event) {
 		const target = e.target as HTMLInputElement;
-		const file = target.files?.[0];
-		if (file && file.type.startsWith('image/')) {
-			setPendingImage(file);
+		const files = target.files;
+		if (files) {
+			for (const file of files) {
+				if (file.type.startsWith('image/')) {
+					addPendingImage(file);
+				}
+			}
 		}
 		target.value = '';
+	}
+
+	function handleDragOver(e: DragEvent) {
+		e.preventDefault();
+		isDragOver = true;
+	}
+
+	function handleDragLeave() {
+		isDragOver = false;
+	}
+
+	function handleDrop(e: DragEvent) {
+		e.preventDefault();
+		isDragOver = false;
+		const files = e.dataTransfer?.files;
+		if (files) {
+			for (const file of files) {
+				if (file.type.startsWith('image/')) {
+					addPendingImage(file);
+				}
+			}
+		}
 	}
 </script>
 
 <div class="input-bar">
-	<div class="input-card">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="input-card"
+		class:drag-over={isDragOver}
+		ondragover={handleDragOver}
+		ondragleave={handleDragLeave}
+		ondrop={handleDrop}
+	>
 		<ImagePreview />
 		<div class="input-row">
-			<button class="attach-btn" onclick={() => fileInput.click()} title="Attach image" aria-label="Attach image">
-				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<line x1="12" y1="5" x2="12" y2="19" />
-					<line x1="5" y1="12" x2="19" y2="12" />
-				</svg>
-			</button>
-			<input type="file" accept="image/*" bind:this={fileInput} onchange={handleFileChange} hidden />
+			{#if getEngineStatus()?.has_vision}
+				<button class="attach-btn" onclick={() => fileInput.click()} title="Attach image" aria-label="Attach image">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<line x1="12" y1="5" x2="12" y2="19" />
+						<line x1="5" y1="12" x2="19" y2="12" />
+					</svg>
+				</button>
+				<input type="file" accept="image/*" multiple bind:this={fileInput} onchange={handleFileChange} hidden />
+			{/if}
 			<textarea
 				bind:this={textareaEl}
 				bind:value={inputText}
@@ -74,7 +100,7 @@
 			<button
 				class="send-btn"
 				onclick={handleSubmit}
-				disabled={getIsStreaming() || !inputText.trim()}
+				disabled={getIsStreaming() || (!inputText.trim() && getPendingImages().length === 0)}
 				title="Send message"
 				aria-label="Send message"
 			>
@@ -105,6 +131,12 @@
 		padding: 8px 8px 8px 4px;
 		display: flex;
 		flex-direction: column;
+		transition: border-color var(--transition), background var(--transition);
+	}
+
+	.input-card.drag-over {
+		border-color: var(--accent);
+		background: var(--bg-secondary);
 	}
 
 	.input-row {

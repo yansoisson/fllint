@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -55,7 +56,9 @@ type LlamaCppEngine struct {
 	serverBinaryPath string
 	modelPath        string
 	modelName        string
+	mmprojPath       string // optional multimodal projector for vision
 	port             int
+	dataDir          string
 
 	// Runtime state (guarded by mu)
 	state    EngineState
@@ -71,9 +74,11 @@ type LlamaCppConfig struct {
 	ServerBinaryPath string
 	ModelPath        string
 	ModelName        string
+	MmprojPath       string // optional path to mmproj file for vision models
 	CtxSize          int
 	NGPULayers       int
 	FlashAttn        bool
+	DataDir          string // For resolving image URLs to disk paths
 }
 
 // NewLlamaCppEngine creates a new engine but does not start the server process.
@@ -111,7 +116,9 @@ func NewLlamaCppEngine(cfg LlamaCppConfig) (*LlamaCppEngine, error) {
 		serverBinaryPath: cfg.ServerBinaryPath,
 		modelPath:        cfg.ModelPath,
 		modelName:        cfg.ModelName,
+		mmprojPath:       cfg.MmprojPath,
 		port:             port,
+		dataDir:          cfg.DataDir,
 		state:            EngineStateIdle,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute,
@@ -139,6 +146,9 @@ func (e *LlamaCppEngine) Start() error {
 		"--ctx-size", "4096",
 		"--n-gpu-layers", "999",
 		"--flash-attn", "auto",
+	}
+	if e.mmprojPath != "" {
+		args = append(args, "--mmproj", e.mmprojPath)
 	}
 
 	cmd := exec.CommandContext(ctx, e.serverBinaryPath, args...)
@@ -340,20 +350,13 @@ func (e *LlamaCppEngine) ChatStream(ctx context.Context, messages []ChatMessage)
 	}
 
 	// Build OpenAI-compatible request
-	type oaiMessage struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	}
-	type oaiRequest struct {
-		Model       string       `json:"model"`
-		Messages    []oaiMessage `json:"messages"`
-		Stream      bool         `json:"stream"`
-		Temperature float64      `json:"temperature,omitempty"`
-	}
-
-	oaiMsgs := make([]oaiMessage, len(messages))
-	for i, m := range messages {
-		oaiMsgs[i] = oaiMessage{Role: m.Role, Content: m.Content}
+	oaiMsgs := make([]oaiMessage, 0, len(messages))
+	for _, m := range messages {
+		msg, err := e.buildOAIMessage(m)
+		if err != nil {
+			return nil, err
+		}
+		oaiMsgs = append(oaiMsgs, msg)
 	}
 
 	body, err := json.Marshal(oaiRequest{
@@ -468,6 +471,111 @@ func (e *LlamaCppEngine) State() (EngineState, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.state, e.stateErr
+}
+
+// --- OpenAI-compatible request types ---
+
+type oaiMessage struct {
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // string or []oaiContentPart
+}
+
+type oaiRequest struct {
+	Model       string       `json:"model"`
+	Messages    []oaiMessage `json:"messages"`
+	Stream      bool         `json:"stream"`
+	Temperature float64      `json:"temperature,omitempty"`
+}
+
+type oaiContentPart struct {
+	Type     string       `json:"type"`
+	Text     string       `json:"text,omitempty"`
+	ImageURL *oaiImageURL `json:"image_url,omitempty"`
+}
+
+type oaiImageURL struct {
+	URL string `json:"url"`
+}
+
+// HasVision reports whether this engine was started with a multimodal projector.
+func (e *LlamaCppEngine) HasVision() bool {
+	return e.mmprojPath != ""
+}
+
+// buildOAIMessage converts a ChatMessage to the OpenAI format. Text-only
+// messages use a plain string for Content; messages with images use a
+// content array with text and image_url parts.
+func (e *LlamaCppEngine) buildOAIMessage(m ChatMessage) (oaiMessage, error) {
+	msg := oaiMessage{Role: m.Role}
+
+	if len(m.Images) == 0 {
+		msg.Content = m.Content
+		return msg, nil
+	}
+
+	if !e.HasVision() {
+		return oaiMessage{}, fmt.Errorf(
+			"This model doesn't support image input. " +
+				"To use images, place a mmproj .gguf file in the models/ folder " +
+				"(download one that matches your model from HuggingFace)",
+		)
+	}
+
+	// Multimodal: build content array
+	var parts []oaiContentPart
+
+	if m.Content != "" {
+		parts = append(parts, oaiContentPart{
+			Type: "text",
+			Text: m.Content,
+		})
+	}
+
+	for _, imgURL := range m.Images {
+		dataURI, err := e.imageToDataURI(imgURL)
+		if err != nil {
+			return oaiMessage{}, fmt.Errorf("failed to process image %s: %w", imgURL, err)
+		}
+		parts = append(parts, oaiContentPart{
+			Type:     "image_url",
+			ImageURL: &oaiImageURL{URL: dataURI},
+		})
+	}
+
+	msg.Content = parts
+	return msg, nil
+}
+
+// imageToDataURI reads an uploaded image file from disk and returns a
+// base64-encoded data URI suitable for the OpenAI vision API.
+func (e *LlamaCppEngine) imageToDataURI(imgURL string) (string, error) {
+	filename := strings.TrimPrefix(imgURL, "/api/uploads/")
+	if filename == imgURL || filename == "" {
+		return "", fmt.Errorf("invalid image URL format")
+	}
+
+	filePath := filepath.Join(e.dataDir, "uploads", filename)
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("cannot read image file: %w", err)
+	}
+
+	ext := strings.ToLower(filepath.Ext(filename))
+	mime := "image/jpeg"
+	switch ext {
+	case ".png":
+		mime = "image/png"
+	case ".gif":
+		mime = "image/gif"
+	case ".webp":
+		mime = "image/webp"
+	case ".jpg", ".jpeg":
+		mime = "image/jpeg"
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(data)
+	return fmt.Sprintf("data:%s;base64,%s", mime, encoded), nil
 }
 
 // findAvailablePort asks the OS for a free TCP port on localhost.
