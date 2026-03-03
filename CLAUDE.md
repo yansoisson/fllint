@@ -1,0 +1,70 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+Always take a look at README.md to build a deep understanding of the project and its purpose.
+
+## Build & Development Commands
+
+```bash
+make build          # Full production build (frontend + Go binary, CGO_ENABLED=1)
+make dev            # Run both dev servers concurrently (Vite :5173 + Go :8420)
+make dev-frontend   # Vite dev server only (proxies /api to :8420)
+make dev-backend    # Go server only with -tags dev (no frontend embed)
+make test           # go test ./...
+make fmt            # go fmt ./...
+make clean          # Remove binary, frontend/build, .svelte-kit
+```
+
+Frontend-specific (from `frontend/`):
+```bash
+npm run dev         # Vite dev server on :5173
+npm run build       # Production static build → build/
+npm run check       # svelte-check type validation
+```
+
+## Architecture
+
+Single-binary local AI chat app. Go backend serves a SvelteKit SPA embedded via `//go:embed all:frontend/build`.
+
+### Backend (Go + chi)
+
+- **Entry points**: `main.go` (prod, embeds frontend) / `main_dev.go` (dev, skips embed) — controlled by `//go:build dev` tag
+- **Bootstrap**: `cmd/root.go` — loads config, creates managers, starts HTTP server, opens browser, runs systray on main goroutine (macOS AppKit requirement)
+- **`internal/llm/`**: `Engine` interface with `ChatStream` returning `<-chan Token`. Currently uses `StubEngine`. `Manager` handles model switching with RWMutex.
+- **`internal/chat/`**: SSE streaming handler (`http.Flusher`), conversation CRUD. `Store` persists conversations as individual JSON files in `{dataDir}/conversations/`.
+- **`internal/server/`**: chi router, middleware stack, SPA fallback serving. No `middleware.Timeout` — it wraps ResponseWriter and breaks SSE Flusher.
+- **`internal/config/`**: JSON config with env var overrides (`FLLINT_PORT`, `FLLINT_DATA_DIR`, `FLLINT_MODELS_DIR`)
+- **`internal/image/`**: Multipart upload (10MB limit), UUID filenames, serves via `/api/uploads/*`
+- **`internal/launcher/`**: `fyne.io/systray` (must run on main goroutine), platform-specific browser open
+
+### Frontend (SvelteKit 2 + Svelte 5)
+
+- **Adapter**: `adapter-static` in SPA mode (fallback: `index.html`, `ssr = false`)
+- **State**: `lib/stores.svelte.ts` uses Svelte 5 runes (`$state`, `$effect`), exports getter/action functions
+- **API client**: `lib/api.ts` — `streamChat()` uses `fetch` + `ReadableStream` async generator (not EventSource, which doesn't support POST)
+- **Path aliases**: `$components` → `src/components`, `$lib` → `src/lib`
+- **Vite proxy**: `/api` → `http://localhost:8420` in dev, with SSE-compatible headers
+
+## Key Conventions
+
+- **Svelte 5 syntax**: `$props()` not `export let`, `{@render children()}` not `<slot />`, `onclick={}` not `on:click={}`, no nested `<button>` elements
+- **Rune files**: `.svelte.ts` extension required for files using runes outside components
+- **Embed directive**: Must use `all:frontend/build` prefix (SvelteKit outputs `_app/` which Go embed skips without `all:`)
+- **Thread safety**: Config, Manager, and Store all use `sync.RWMutex`
+- **SSE protocol**: Server sends `data: {json}\n\n` tokens, `data: [DONE]\n\n` to signal completion
+
+## API Routes
+
+All under `/api/`:
+- `GET/POST /conversations`, `GET/DELETE /conversations/{id}` — conversation CRUD
+- `POST /chat` — SSE streaming chat endpoint
+- `GET /models`, `PUT /models/active` — model management
+- `POST /image/upload`, `GET /uploads/*` — image handling
+- `GET/PUT /config` — app configuration
+
+## Environment Variables
+
+- `FLLINT_PORT` (default: 8420)
+- `FLLINT_DATA_DIR` (default: ./data)
+- `FLLINT_MODELS_DIR` (default: ./models)
