@@ -20,6 +20,8 @@ make dev-backend    # Go server only with -tags dev (no frontend embed)
 make test           # go test ./...
 make fmt            # go fmt ./...
 make clean          # Remove binary, frontend/build, .svelte-kit
+make dist-macos     # Build macOS .app distribution → dist/Fllint/
+make dist-clean     # Remove dist/ folder
 ```
 
 Frontend-specific (from `frontend/`):
@@ -36,7 +38,8 @@ Single-binary local AI chat app. Go backend serves a SvelteKit SPA embedded via 
 ### Backend (Go + chi)
 
 - **Entry points**: `main.go` (prod, embeds frontend) / `main_dev.go` (dev, skips embed) — controlled by `//go:build dev` tag
-- **Bootstrap**: `cmd/root.go` — loads config, creates managers, starts HTTP server, opens browser, runs systray on main goroutine (macOS AppKit requirement)
+- **Bootstrap**: `cmd/root.go` — resolves paths via `internal/paths`, loads config, creates managers, starts HTTP server, opens browser, runs systray on main goroutine (macOS AppKit requirement)
+- **`internal/paths/`**: `Resolve()` returns `AppPaths{BinDir, DataDir, ModelsDir}`. Detection priority: env vars → macOS `.app` bundle → CWD defaults. Extensible for Linux AppImage.
 - **`internal/llm/`**: `Engine` interface with `ChatStream` returning `<-chan Token`. `LlamaCppEngine` manages a `llama-server` child process and talks to it via OpenAI-compatible HTTP API (`/v1/chat/completions`). `Manager` handles model discovery (scans `modelsDir/` for `.gguf` files), engine lifecycle, and model switching with RWMutex. `StubEngine` kept for development.
 - **`internal/chat/`**: SSE streaming handler (`http.Flusher`), conversation CRUD. `Store` persists conversations as individual JSON files in `{dataDir}/conversations/`.
 - **`internal/server/`**: chi router, middleware stack, SPA fallback serving. No `middleware.Timeout` — it wraps ResponseWriter and breaks SSE Flusher.
@@ -82,6 +85,26 @@ All under `/api/`:
 ## Environment Variables
 
 - `FLLINT_PORT` (default: 8420)
-- `FLLINT_DATA_DIR` (default: ./data)
-- `FLLINT_MODELS_DIR` (default: ./models)
-- `FLLINT_BIN_DIR` (default: ./bin)
+- `FLLINT_DATA_DIR` (default: ./data, or auto-detected from .app bundle)
+- `FLLINT_MODELS_DIR` (default: ./models, or auto-detected from .app bundle)
+- `FLLINT_BIN_DIR` (default: ./bin, or auto-detected from .app bundle)
+
+## macOS Distribution
+
+`make dist-macos` produces a `dist/Fllint/` folder:
+
+```
+Fllint/
+  Fllint.app/             ← Double-click to launch
+    Contents/
+      Info.plist
+      MacOS/fllint        ← Go binary
+      Resources/
+        icon.icns
+        bin/llama-server  ← Bundled inference server
+  Data/
+    models/               ← Pre-bundled and user-added models
+    conversations/        ← Chat history
+```
+
+Path resolution (`internal/paths/`) auto-detects the `.app` bundle and resolves all paths relative to the `Fllint/` folder. Env vars override auto-detection for dev/debugging. The `packaging/macos/` directory contains `Info.plist` and `build-app.sh`.

@@ -16,28 +16,24 @@ import (
 	"github.com/fllint/fllint/internal/config"
 	"github.com/fllint/fllint/internal/launcher"
 	"github.com/fllint/fllint/internal/llm"
+	"github.com/fllint/fllint/internal/paths"
 	"github.com/fllint/fllint/internal/server"
 )
 
 // Run is the main entry point for the application.
 // It must be called from the main goroutine because systray requires the main OS thread on macOS.
 func Run(frontendFS fs.FS) {
-	// Determine data directory
-	dataDir := os.Getenv("FLLINT_DATA_DIR")
-	if dataDir == "" {
-		dataDir = "./data"
-	}
+	// Resolve all filesystem paths (bundle detection, env overrides, or CWD defaults)
+	appPaths := paths.Resolve()
 
-	// Load config
-	cfg, err := config.Load(dataDir)
+	// Load config from resolved data directory
+	cfg, err := config.Load(appPaths.DataDir)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+	cfg.ModelsDir = appPaths.ModelsDir
 
-	// Override from env
-	if modelsDir := os.Getenv("FLLINT_MODELS_DIR"); modelsDir != "" {
-		cfg.ModelsDir = modelsDir
-	}
+	// Port override from env
 	if port := os.Getenv("FLLINT_PORT"); port != "" {
 		fmt.Sscanf(port, "%d", &cfg.Port)
 	}
@@ -45,14 +41,8 @@ func Run(frontendFS fs.FS) {
 	// Ensure directories exist
 	os.MkdirAll(cfg.DataDir, 0755)
 	os.MkdirAll(cfg.ModelsDir, 0755)
-
-	// Discover llama-server binary
-	binDir := os.Getenv("FLLINT_BIN_DIR")
-	if binDir == "" {
-		binDir = "./bin"
-	}
-	os.MkdirAll(binDir, 0755)
-	serverBinaryPath := filepath.Join(binDir, "llama-server")
+	os.MkdirAll(appPaths.BinDir, 0755)
+	serverBinaryPath := filepath.Join(appPaths.BinDir, "llama-server")
 
 	// Initialize LLM manager with real model discovery
 	llmManager := llm.NewManager(serverBinaryPath, cfg.ModelsDir, cfg.DataDir)

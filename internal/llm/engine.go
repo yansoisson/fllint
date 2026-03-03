@@ -7,7 +7,7 @@ import (
 
 // ChatMessage represents a single message in a conversation.
 type ChatMessage struct {
-	Role    string   `json:"role"`    // "user", "assistant", "system"
+	Role    string   `json:"role"` // "user", "assistant", "system"
 	Content string   `json:"content"`
 	Images  []string `json:"images,omitempty"` // URLs like "/api/uploads/uuid.png"
 }

@@ -1,4 +1,4 @@
-.PHONY: all build frontend backend run dev dev-frontend dev-backend clean test fmt
+.PHONY: all build frontend backend run dev dev-frontend dev-backend clean test fmt dist-macos dist-clean
 
 # Full build: frontend then Go binary
 all: build
@@ -50,3 +50,13 @@ test:
 
 fmt:
 	go fmt ./...
+
+# --- Distribution ---
+
+# Build macOS .app distribution folder
+dist-macos: build
+	@bash packaging/macos/build-app.sh
+
+# Clean distribution artifacts
+dist-clean:
+	rm -rf dist/

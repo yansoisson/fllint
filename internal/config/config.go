@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -33,12 +34,19 @@ func Load(dataDir string) (*Config, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	path := filepath.Join(dataDir, "config.json")
+	// Resolve to absolute path so saved config is unambiguous
+	absDataDir, err := filepath.Abs(dataDir)
+	if err != nil {
+		log.Printf("Warning: could not resolve absolute path for %q: %v", dataDir, err)
+		absDataDir = dataDir
+	}
+
+	path := filepath.Join(absDataDir, "config.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			d := Default()
-			d.DataDir = dataDir
+			d.DataDir = absDataDir
 			cfg = &d
 			return cfg, nil
 		}
@@ -49,6 +57,8 @@ func Load(dataDir string) (*Config, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, err
 	}
+	// Force DataDir from caller to prevent stale paths in saved config
+	c.DataDir = absDataDir
 	cfg = &c
 	return cfg, nil
 }
