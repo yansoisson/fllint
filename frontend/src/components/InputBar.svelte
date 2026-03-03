@@ -5,6 +5,14 @@
 
 	let inputText = $state('');
 	let fileInput: HTMLInputElement;
+	let textareaEl: HTMLTextAreaElement;
+
+	function autoResize() {
+		if (textareaEl) {
+			textareaEl.style.height = 'auto';
+			textareaEl.style.height = Math.min(textareaEl.scrollHeight, 160) + 'px';
+		}
+	}
 
 	async function handleSubmit() {
 		const text = inputText.trim();
@@ -20,6 +28,9 @@
 		}
 
 		inputText = '';
+		if (textareaEl) {
+			textareaEl.style.height = 'auto';
+		}
 		await sendMessage(text);
 	}
 
@@ -41,73 +52,92 @@
 </script>
 
 <div class="input-bar">
-	<ImagePreview />
-	<div class="input-row">
-		<button class="upload-btn" onclick={() => fileInput.click()} title="Upload image">
-			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-				<circle cx="8.5" cy="8.5" r="1.5" />
-				<polyline points="21 15 16 10 5 21" />
-			</svg>
-		</button>
-		<input type="file" accept="image/*" bind:this={fileInput} onchange={handleFileChange} hidden />
-		<textarea
-			bind:value={inputText}
-			onkeydown={handleKeydown}
-			placeholder={getIsStreaming() ? 'Waiting for response...' : 'Type a message...'}
-			disabled={getIsStreaming()}
-			rows={1}
-		></textarea>
-		<button
-			class="send-btn"
-			onclick={handleSubmit}
-			disabled={getIsStreaming() || !inputText.trim()}
-		>
-			Send
-		</button>
+	<div class="input-card">
+		<ImagePreview />
+		<div class="input-row">
+			<button class="attach-btn" onclick={() => fileInput.click()} title="Attach image" aria-label="Attach image">
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<line x1="12" y1="5" x2="12" y2="19" />
+					<line x1="5" y1="12" x2="19" y2="12" />
+				</svg>
+			</button>
+			<input type="file" accept="image/*" bind:this={fileInput} onchange={handleFileChange} hidden />
+			<textarea
+				bind:this={textareaEl}
+				bind:value={inputText}
+				oninput={autoResize}
+				onkeydown={handleKeydown}
+				placeholder={getIsStreaming() ? 'Waiting for response...' : 'Message Fllint...'}
+				disabled={getIsStreaming()}
+				rows={1}
+			></textarea>
+			<button
+				class="send-btn"
+				onclick={handleSubmit}
+				disabled={getIsStreaming() || !inputText.trim()}
+				title="Send message"
+				aria-label="Send message"
+			>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+					<line x1="12" y1="19" x2="12" y2="5" />
+					<polyline points="5 12 12 5 19 12" />
+				</svg>
+			</button>
+		</div>
 	</div>
 </div>
 
 <style>
 	.input-bar {
-		padding: 12px 24px 16px;
-		border-top: 1px solid var(--border);
-		background: var(--bg-secondary);
+		padding: 12px 24px 24px;
+		display: flex;
+		justify-content: center;
+		background: var(--bg-primary);
+	}
+
+	.input-card {
+		width: 100%;
+		max-width: var(--input-max-width);
+		background: var(--bg-primary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-md);
+		padding: 8px 8px 8px 4px;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.input-row {
 		display: flex;
 		align-items: flex-end;
-		gap: 8px;
+		gap: 4px;
 	}
 
 	textarea {
 		flex: 1;
 		resize: none;
-		padding: 12px 16px;
-		border-radius: var(--radius);
-		border: 1px solid var(--border);
-		background: var(--bg-input);
+		padding: 8px 8px;
+		border: none;
+		background: transparent;
 		outline: none;
-		min-height: var(--input-height);
-		max-height: 120px;
-		transition: border-color var(--transition);
+		min-height: 24px;
+		max-height: 160px;
 		line-height: 1.5;
+		font-size: 0.9375rem;
 	}
 
-	textarea:focus {
-		border-color: var(--accent);
+	textarea::placeholder {
+		color: var(--text-muted);
 	}
 
 	textarea:disabled {
 		opacity: 0.6;
 	}
 
-	.upload-btn {
-		width: 44px;
-		height: 44px;
-		border-radius: var(--radius);
-		border: 1px solid var(--border);
+	.attach-btn {
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -116,20 +146,22 @@
 		flex-shrink: 0;
 	}
 
-	.upload-btn:hover {
-		background: var(--bg-tertiary);
+	.attach-btn:hover {
+		background: var(--bg-hover);
 		color: var(--text-primary);
 	}
 
 	.send-btn {
-		padding: 12px 20px;
-		border-radius: var(--radius);
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
 		background: var(--accent);
 		color: white;
-		font-weight: 600;
-		transition: background var(--transition);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all var(--transition);
 		flex-shrink: 0;
-		height: 44px;
 	}
 
 	.send-btn:hover:not(:disabled) {
@@ -137,7 +169,8 @@
 	}
 
 	.send-btn:disabled {
-		opacity: 0.4;
+		background: var(--bg-tertiary);
+		color: var(--text-muted);
 		cursor: not-allowed;
 	}
 </style>

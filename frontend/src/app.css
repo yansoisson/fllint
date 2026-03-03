@@ -1,20 +1,41 @@
 :root {
-	--bg-primary: #1a1a2e;
-	--bg-secondary: #16213e;
-	--bg-tertiary: #0f3460;
-	--bg-input: #1e2a4a;
-	--text-primary: #e0e0e0;
-	--text-secondary: #a0a0b0;
-	--text-muted: #6a6a7a;
-	--accent: #e94560;
-	--accent-hover: #ff6b81;
-	--border: #2a2a4a;
-	--user-bubble: #0f3460;
-	--assistant-bubble: #1e1e38;
+	/* Backgrounds */
+	--bg-primary: #ffffff;
+	--bg-secondary: #f9f9f9;
+	--bg-tertiary: #ececec;
+	--bg-input: #ffffff;
+	--bg-hover: #f0f0f0;
+
+	/* Text */
+	--text-primary: #1a1a1a;
+	--text-secondary: #555555;
+	--text-muted: #999999;
+
+	/* Accent — teal-green */
+	--accent: #10a37f;
+	--accent-hover: #0d8a6a;
+	--accent-light: rgba(16, 163, 127, 0.08);
+
+	/* Borders & Shadows */
+	--border: #e5e5e5;
+	--border-light: #f0f0f0;
+	--shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+	--shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
+	--shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.1);
+
+	/* Message colors */
+	--user-bubble: #f0f0f0;
+	--assistant-bubble: transparent;
+
+	/* Layout */
 	--sidebar-width: 260px;
-	--header-height: 48px;
-	--input-height: 56px;
+	--header-height: 52px;
+	--input-max-width: 768px;
+	--content-max-width: 768px;
+
+	/* Shared */
 	--radius: 8px;
+	--radius-lg: 24px;
 	--transition: 0.2s ease;
 }
 
@@ -32,8 +53,8 @@ body {
 	background-color: var(--bg-primary);
 	color: var(--text-primary);
 	overflow: hidden;
-	font-size: 14px;
-	line-height: 1.5;
+	font-size: 15px;
+	line-height: 1.6;
 }
 
 button {
@@ -65,10 +86,10 @@ a {
 }
 
 ::-webkit-scrollbar-thumb {
-	background: var(--border);
+	background: #d4d4d4;
 	border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	background: var(--text-muted);
+	background: #b0b0b0;
 }

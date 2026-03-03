@@ -11,8 +11,13 @@
 
 <aside class="sidebar" class:open={getSidebarOpen()}>
 	<div class="header">
-		<h2>Chats</h2>
-		<button class="new-btn" onclick={newConversation}>+ New</button>
+		<span class="brand">Fllint</span>
+		<button class="new-btn" onclick={newConversation} title="New chat">
+			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M12 20h9" />
+				<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+			</svg>
+		</button>
 	</div>
 	<div class="list">
 		{#each getConversations() as conv}
@@ -47,7 +52,6 @@
 	.sidebar {
 		width: var(--sidebar-width);
 		background: var(--bg-secondary);
-		border-right: 1px solid var(--border);
 		display: flex;
 		flex-direction: column;
 		transition: margin-left var(--transition);
@@ -63,33 +67,36 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		border-bottom: 1px solid var(--border);
 		height: var(--header-height);
 	}
 
-	.header h2 {
-		font-size: 0.95rem;
-		font-weight: 600;
+	.brand {
+		font-size: 1rem;
+		font-weight: 700;
+		color: var(--text-primary);
+		letter-spacing: -0.01em;
 	}
 
 	.new-btn {
-		padding: 5px 12px;
+		width: 36px;
+		height: 36px;
 		border-radius: var(--radius);
-		background: var(--accent);
-		color: white;
-		font-size: 0.8rem;
-		font-weight: 600;
-		transition: background var(--transition);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--text-secondary);
+		transition: all var(--transition);
 	}
 
 	.new-btn:hover {
-		background: var(--accent-hover);
+		background: var(--bg-hover);
+		color: var(--text-primary);
 	}
 
 	.list {
 		flex: 1;
 		overflow-y: auto;
-		padding: 8px;
+		padding: 4px 8px;
 	}
 
 	.conv-item {
@@ -101,12 +108,12 @@
 		justify-content: space-between;
 		align-items: center;
 		transition: background var(--transition);
-		margin-bottom: 2px;
+		margin-bottom: 1px;
 		cursor: pointer;
 	}
 
 	.conv-item:hover {
-		background: var(--bg-tertiary);
+		background: var(--bg-hover);
 	}
 
 	.conv-item.active {
@@ -118,7 +125,8 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		flex: 1;
-		font-size: 0.85rem;
+		font-size: 0.875rem;
+		color: var(--text-primary);
 	}
 
 	.delete {
@@ -136,14 +144,14 @@
 	}
 
 	.delete:hover {
-		color: var(--accent);
-		background: rgba(233, 69, 96, 0.1);
+		color: #e74c3c;
+		background: rgba(231, 76, 60, 0.08);
 	}
 
 	.empty {
 		padding: 24px 16px;
 		text-align: center;
 		color: var(--text-muted);
-		font-size: 0.85rem;
+		font-size: 0.875rem;
 	}
 </style>

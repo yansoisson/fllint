@@ -68,7 +68,7 @@
 	.overlay {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
+		background: rgba(0, 0, 0, 0.3);
 		z-index: 10;
 	}
 
@@ -77,43 +77,49 @@
 		top: 50%;
 		left: 50%;
 		transform: translate(-50%, -50%);
-		background: var(--bg-secondary);
+		background: var(--bg-primary);
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 24px;
+		border-radius: 16px;
+		padding: 28px;
 		z-index: 11;
-		min-width: 380px;
+		min-width: 400px;
 		max-width: 90vw;
+		box-shadow: var(--shadow-lg);
 	}
 
 	.panel-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 20px;
+		margin-bottom: 24px;
 	}
 
 	h3 {
-		font-size: 1.1rem;
+		font-size: 1.2rem;
 		font-weight: 600;
+		color: var(--text-primary);
 	}
 
 	.close-btn {
 		font-size: 20px;
 		color: var(--text-muted);
-		padding: 4px 8px;
-		border-radius: 4px;
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.close-btn:hover {
 		color: var(--text-primary);
-		background: var(--bg-tertiary);
+		background: var(--bg-hover);
 	}
 
 	.form {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: 18px;
 	}
 
 	label {
@@ -132,13 +138,14 @@
 		padding: 10px 14px;
 		border-radius: var(--radius);
 		border: 1px solid var(--border);
-		background: var(--bg-input);
+		background: var(--bg-primary);
 		outline: none;
 		transition: border-color var(--transition);
 	}
 
 	input:focus {
 		border-color: var(--accent);
+		box-shadow: 0 0 0 3px var(--accent-light);
 	}
 
 	.save-btn {

@@ -4,7 +4,15 @@
 	import InputBar from '$components/InputBar.svelte';
 	import ModelSelector from '$components/ModelSelector.svelte';
 	import Settings from '$components/Settings.svelte';
-	import { loadConversations, loadModels, loadStatus, toggleSidebar, toggleSettings } from '$lib/stores.svelte';
+	import {
+		loadConversations,
+		loadModels,
+		loadStatus,
+		toggleSidebar,
+		toggleSettings,
+		getMessages,
+		getIsStreaming
+	} from '$lib/stores.svelte';
 
 	$effect(() => {
 		loadConversations();
@@ -35,8 +43,10 @@
 				</svg>
 			</button>
 		</header>
-		<ChatWindow />
-		<InputBar />
+		<div class="content" class:centered={getMessages().length === 0 && !getIsStreaming()}>
+			<ChatWindow />
+			<InputBar />
+		</div>
 	</main>
 </div>
 
@@ -59,15 +69,25 @@
 	header {
 		display: flex;
 		align-items: center;
-		padding: 0 12px;
-		border-bottom: 1px solid var(--border);
-		background: var(--bg-secondary);
+		padding: 0 16px;
+		background: var(--bg-primary);
 		height: var(--header-height);
 		flex-shrink: 0;
 	}
 
 	.spacer {
 		flex: 1;
+	}
+
+	.content {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+
+	.content.centered {
+		justify-content: center;
 	}
 
 	.icon-btn {
@@ -82,7 +102,7 @@
 	}
 
 	.icon-btn:hover {
-		background: var(--bg-tertiary);
+		background: var(--bg-hover);
 		color: var(--text-primary);
 	}
 </style>

@@ -11,6 +11,7 @@
 	} from '$lib/stores.svelte';
 
 	let chatContainer: HTMLDivElement;
+	let hasMessages = $derived(getMessages().length > 0 || getIsStreaming());
 
 	$effect(() => {
 		const _ = getMessages();
@@ -23,7 +24,7 @@
 	});
 </script>
 
-<div class="chat-window" bind:this={chatContainer}>
+<div class="chat-window" class:has-messages={hasMessages} bind:this={chatContainer}>
 	{#each getMessages() as message}
 		<MessageBubble {message} />
 	{/each}
@@ -82,8 +83,7 @@
 				<h2>Welcome to Fllint</h2>
 				<p>Select a model from the dropdown above to get started.</p>
 			{:else}
-				<h2>Welcome to Fllint</h2>
-				<p>Start a conversation by typing a message below.</p>
+				<h2>What's on your mind?</h2>
 			{/if}
 		</div>
 	{/if}
@@ -91,15 +91,17 @@
 
 <style>
 	.chat-window {
-		flex: 1;
 		overflow-y: auto;
-		padding: 24px;
+		padding: 24px max(24px, calc((100% - var(--content-max-width)) / 2));
 		display: flex;
 		flex-direction: column;
 	}
 
-	.empty {
+	.chat-window.has-messages {
 		flex: 1;
+	}
+
+	.empty {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -107,13 +109,21 @@
 		color: var(--text-muted);
 		text-align: center;
 		gap: 8px;
+		padding: 32px 0;
+		max-width: var(--content-max-width);
+		width: 100%;
+		align-self: center;
 	}
 
 	.empty h2 {
 		margin-bottom: 4px;
 		font-weight: 500;
+		color: var(--text-primary);
+		font-size: 1.8rem;
+	}
+
+	.empty p {
 		color: var(--text-secondary);
-		font-size: 1.4rem;
 	}
 
 	.empty code {
@@ -148,6 +158,7 @@
 
 	.step span {
 		font-size: 0.9em;
+		color: var(--text-secondary);
 	}
 
 	.refresh-btn {
@@ -158,11 +169,11 @@
 		color: white;
 		font-size: 0.9rem;
 		cursor: pointer;
-		transition: opacity var(--transition);
+		transition: background var(--transition);
 	}
 
 	.refresh-btn:hover {
-		opacity: 0.9;
+		background: var(--accent-hover);
 	}
 
 	.spinner {
@@ -199,24 +210,27 @@
 		padding: 10px 16px;
 		margin-top: 8px;
 		border-radius: var(--radius);
-		background: #3a1c1c;
-		border: 1px solid #5a2d2d;
-		color: #f5a5a5;
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+		color: #991b1b;
 		font-size: 0.9em;
+		max-width: var(--content-max-width);
+		width: 100%;
+		align-self: center;
 	}
 
 	.dismiss-btn {
 		padding: 4px 10px;
 		border-radius: var(--radius);
 		background: transparent;
-		border: 1px solid #5a2d2d;
-		color: #f5a5a5;
+		border: 1px solid #fecaca;
+		color: #991b1b;
 		font-size: 0.8em;
 		cursor: pointer;
 		white-space: nowrap;
 	}
 
 	.dismiss-btn:hover {
-		background: #5a2d2d;
+		background: #fee2e2;
 	}
 </style>
