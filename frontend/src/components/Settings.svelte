@@ -16,6 +16,8 @@
 	import * as api from '$lib/api';
 	import type { AppConfig, ModelInfo } from '$lib/types';
 
+	type SettingsTab = 'general' | 'models' | 'advanced';
+
 	let config = $state<AppConfig | null>(null);
 	let loading = $state(false);
 	let saving = $state(false);
@@ -26,10 +28,10 @@
 	let deleteModelConfirm = $state<string | null>(null);
 	let deleteAllStep = $state(0);
 	let deleteAllTimeout: ReturnType<typeof setTimeout> | null = null;
-	let systemPromptOpen = $state(false);
 	let unloadingModelId = $state<string | null>(null);
 	let dragModelId = $state<string | null>(null);
 	let dragOverModelId = $state<string | null>(null);
+	let activeTab = $state<SettingsTab>('general');
 
 	// Loaded models derived from model list
 	let loadedModels = $derived(getModels().filter((m) => m.loaded));
@@ -141,7 +143,14 @@
 			editingModelId = null;
 			deleteModelConfirm = null;
 			deleteAllStep = 0;
-			systemPromptOpen = false;
+			activeTab = 'general';
+		}
+	});
+
+	// Redirect from Advanced tab when Pro Mode is toggled off
+	$effect(() => {
+		if (config && !config.pro_mode && activeTab === 'advanced') {
+			activeTab = 'general';
 		}
 	});
 
@@ -314,6 +323,16 @@
 			<div class="header-spacer"></div>
 		</div>
 
+		{#if config}
+			<nav class="tab-bar">
+				<button class="tab" class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}>General</button>
+				<button class="tab" class:active={activeTab === 'models'} onclick={() => (activeTab = 'models')}>Models</button>
+				{#if config.pro_mode}
+					<button class="tab" class:active={activeTab === 'advanced'} onclick={() => (activeTab = 'advanced')}>Advanced</button>
+				{/if}
+			</nav>
+		{/if}
+
 		<div class="settings-body">
 			{#if loading}
 				<p class="loading">Loading settings...</p>
@@ -324,163 +343,157 @@
 				</div>
 			{:else if config}
 				<div class="settings-content">
-					<!-- ==================== GENERAL ==================== -->
-					<section class="section">
-						<h4 class="section-title">General</h4>
 
-						<div class="field">
-							<span class="field-label">Theme</span>
-							<div class="theme-buttons">
-								<button
-									class="theme-btn"
-									class:active={config.theme === 'light'}
-									onclick={() => setTheme('light')}
-								>
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<circle cx="12" cy="12" r="5" />
-										<line x1="12" y1="1" x2="12" y2="3" />
-										<line x1="12" y1="21" x2="12" y2="23" />
-										<line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-										<line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-										<line x1="1" y1="12" x2="3" y2="12" />
-										<line x1="21" y1="12" x2="23" y2="12" />
-										<line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-										<line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-									</svg>
-									Light
-								</button>
-								<button
-									class="theme-btn"
-									class:active={config.theme === 'dark'}
-									onclick={() => setTheme('dark')}
-								>
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-									</svg>
-									Dark
-								</button>
-								<button
-									class="theme-btn"
-									class:active={config.theme === 'system'}
-									onclick={() => setTheme('system')}
-								>
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-										<line x1="8" y1="21" x2="16" y2="21" />
-										<line x1="12" y1="17" x2="12" y2="21" />
-									</svg>
-									System
-								</button>
-							</div>
-						</div>
-
-						<div class="field">
-							<div class="toggle-row">
-								<div>
-									<span class="field-label">Pro Mode</span>
-									<p class="field-desc">Show advanced settings for model parameters and server configuration.</p>
-								</div>
-								<button
-									class="toggle"
-									class:on={config.pro_mode}
-									onclick={toggleProMode}
-									role="switch"
-									aria-checked={config.pro_mode}
-									aria-label="Toggle Pro Mode"
-								>
-									<span class="toggle-knob"></span>
-								</button>
-							</div>
-						</div>
-					</section>
-
-					<!-- ==================== LOADED MODELS ==================== -->
-					{#if loadedModels.length > 0}
+					{#if activeTab === 'general'}
+						<!-- ==================== APPEARANCE ==================== -->
 						<section class="section">
-							<h4 class="section-title">Loaded Models</h4>
-							<div class="model-list">
-								{#each loadedModels as model (model.id)}
-									<div class="model-item loaded-item">
-										<div class="model-info">
-											<div class="model-name-row">
-												<span class="loaded-dot-settings"></span>
-												<span class="model-name">{model.name}</span>
-												{#if model.active}
-													<span class="badge active-badge">Default</span>
-												{/if}
-												{#if isModelStarting(model.id)}
-													<span class="badge starting-badge">Loading</span>
-												{:else}
-													<span class="badge loaded-badge">Loaded</span>
-												{/if}
-											</div>
-											<div class="model-meta">
-												{#if model.size}
-													<span>{formatSize(model.size)}</span>
-												{/if}
-											</div>
-										</div>
-										<div class="model-actions">
-											<button
-												class="small-btn unload-btn"
-												onclick={() => handleUnload(model.id)}
-												disabled={unloadingModelId === model.id}
-											>
-												{unloadingModelId === model.id ? 'Unloading...' : 'Unload'}
-											</button>
-										</div>
-									</div>
-								{/each}
+							<h4 class="section-title">Appearance</h4>
+
+							<div class="field">
+								<span class="field-label">Theme</span>
+								<div class="theme-buttons">
+									<button
+										class="theme-btn"
+										class:active={config.theme === 'light'}
+										onclick={() => setTheme('light')}
+									>
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<circle cx="12" cy="12" r="5" />
+											<line x1="12" y1="1" x2="12" y2="3" />
+											<line x1="12" y1="21" x2="12" y2="23" />
+											<line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+											<line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+											<line x1="1" y1="12" x2="3" y2="12" />
+											<line x1="21" y1="12" x2="23" y2="12" />
+											<line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+											<line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+										</svg>
+										Light
+									</button>
+									<button
+										class="theme-btn"
+										class:active={config.theme === 'dark'}
+										onclick={() => setTheme('dark')}
+									>
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+										</svg>
+										Dark
+									</button>
+									<button
+										class="theme-btn"
+										class:active={config.theme === 'system'}
+										onclick={() => setTheme('system')}
+									>
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+											<line x1="8" y1="21" x2="16" y2="21" />
+											<line x1="12" y1="17" x2="12" y2="21" />
+										</svg>
+										System
+									</button>
+								</div>
 							</div>
 						</section>
-					{/if}
 
-					<!-- ==================== MODEL SELECTOR ORDER ==================== -->
-					<section class="section">
-						<h4 class="section-title">Model Selector Order</h4>
-						<p class="field-desc">Drag to reorder pinned models. Click the pin icon to show or hide models in the selector.</p>
+						<!-- ==================== CHAT BEHAVIOR ==================== -->
+						<section class="section">
+							<h4 class="section-title">Chat Behavior</h4>
 
-						{#if getModels().length === 0}
-							<p class="field-desc">No models found.</p>
-						{:else}
-							<div class="model-list">
-								{#each pinnedModels as model (model.id)}
-									<!-- svelte-ignore a11y_no_static_element_interactions -->
-								<div
-										class="model-item draggable"
-										class:drag-over={dragOverModelId === model.id}
-										draggable="true"
-										ondragstart={() => handleDragStart(model.id)}
-										ondragover={(e) => handleDragOver(e, model.id)}
-										ondragleave={handleDragLeave}
-										ondrop={(e) => handleDrop(e, model.id)}
-										ondragend={handleDragEnd}
+							<div class="field">
+								<span class="field-label">Custom Instructions</span>
+								<p class="field-desc">
+									Additional instructions included with every message. For example: "Always respond in German" or "You are a coding assistant."
+								</p>
+								<textarea
+									class="textarea"
+									rows="3"
+									bind:value={config.custom_instructions}
+									placeholder="Enter custom instructions..."
+								></textarea>
+							</div>
+						</section>
+
+						<!-- ==================== PRO MODE ==================== -->
+						<section class="section">
+							<div class="field">
+								<div class="toggle-row">
+									<div>
+										<span class="field-label">Pro Mode</span>
+										<p class="field-desc">Show advanced settings for model parameters and server configuration.</p>
+									</div>
+									<button
+										class="toggle"
+										class:on={config.pro_mode}
+										onclick={toggleProMode}
+										role="switch"
+										aria-checked={config.pro_mode}
+										aria-label="Toggle Pro Mode"
 									>
-										<div class="drag-handle" title="Drag to reorder">
-											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-												<line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" />
-											</svg>
-										</div>
-										<div class="model-info">
-											{#if editingModelId === model.id}
-												<div class="rename-row">
-													<input
-														class="rename-input"
-														bind:value={editingName}
-														onkeydown={(e) => {
-															if (e.key === 'Enter') saveRename();
-															if (e.key === 'Escape') cancelRename();
-														}}
-													/>
-													<button class="small-btn" onclick={saveRename}>Save</button>
-													<button class="small-btn muted" onclick={cancelRename}>Cancel</button>
-												</div>
-											{:else}
+										<span class="toggle-knob"></span>
+									</button>
+								</div>
+							</div>
+						</section>
+
+						<!-- ==================== SAVE BUTTON ==================== -->
+						{#if error}
+							<p class="error-msg">{error}</p>
+						{/if}
+						<button class="save-btn" onclick={save} disabled={saving}>
+							{saving ? 'Saving...' : 'Save Settings'}
+						</button>
+
+						<!-- ==================== DANGER ZONE ==================== -->
+						<section class="section danger-zone">
+							<h4 class="section-title danger-title">Danger Zone</h4>
+
+							<div class="field">
+								<span class="field-label">Delete All Conversations</span>
+								<p class="field-desc">
+									This will permanently delete all {getConversations().length} conversation{getConversations().length !== 1 ? 's' : ''}. This cannot be undone.
+								</p>
+								{#if deleteAllStep === 0}
+									<button
+										class="danger-btn"
+										onclick={handleDeleteAll}
+										disabled={getConversations().length === 0}
+									>
+										Delete All Conversations
+									</button>
+								{:else}
+									<button class="danger-btn confirm" onclick={handleDeleteAll}>
+										Yes, delete all conversations
+									</button>
+								{/if}
+							</div>
+
+							<div class="field uninstall-info">
+								<p class="field-desc">
+									To completely remove Fllint from your system, delete the Fllint folder. All models, conversations, and settings are stored there — nothing else is left on your computer.
+								</p>
+							</div>
+						</section>
+
+					{:else if activeTab === 'models'}
+						<!-- ==================== LOADED MODELS ==================== -->
+						{#if loadedModels.length > 0}
+							<section class="section">
+								<h4 class="section-title">Loaded Models</h4>
+								<div class="model-list">
+									{#each loadedModels as model (model.id)}
+										<div class="model-item loaded-item">
+											<div class="model-info">
 												<div class="model-name-row">
+													<span class="loaded-dot-settings"></span>
 													<span class="model-name">{model.name}</span>
-													<span class="badge tier-badge tier-{model.tier}">{tierLabel(model.tier)}</span>
-													{#if model.vision}
-														<span class="badge vision-badge" title="Supports image input">Vision</span>
+													{#if model.active}
+														<span class="badge active-badge">Default</span>
+													{/if}
+													{#if isModelStarting(model.id)}
+														<span class="badge starting-badge">Loading</span>
+													{:else}
+														<span class="badge loaded-badge">Loaded</span>
 													{/if}
 												</div>
 												<div class="model-meta">
@@ -488,44 +501,48 @@
 														<span>{formatSize(model.size)}</span>
 													{/if}
 												</div>
-											{/if}
-										</div>
-										{#if editingModelId !== model.id}
+											</div>
 											<div class="model-actions">
 												<button
-													class="small-btn pin-btn pinned"
-													onclick={() => togglePin(model)}
-													title="Unpin from selector"
+													class="small-btn unload-btn"
+													onclick={() => handleUnload(model.id)}
+													disabled={unloadingModelId === model.id}
 												>
-													<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-														<path d="M12 17v5M6.7 3.5l3.6 3.6L7.5 9.9l6.6 6.6 2.8-2.8 3.6 3.6" />
-														<path d="M17.3 3.5L20.5 6.7" />
-													</svg>
+													{unloadingModelId === model.id ? 'Unloading...' : 'Unload'}
 												</button>
-												{#if !isTierModel(model)}
-													<button class="small-btn muted" onclick={() => startRename(model)} title="Rename">
-														Rename
-													</button>
-												{/if}
-												{#if !model.active && !model.loaded}
-													<button
-														class="small-btn danger-text"
-														onclick={() => confirmDeleteModel(model)}
-													>
-														{deleteModelConfirm === model.id ? 'Confirm?' : 'Delete'}
-													</button>
-												{/if}
 											</div>
-										{/if}
-									</div>
-								{/each}
-							</div>
+										</div>
+									{/each}
+								</div>
+							</section>
+						{/if}
 
-							{#if unpinnedModels.length > 0}
-								<p class="other-models-label">Other models</p>
+						<!-- ==================== MODEL SELECTOR ORDER ==================== -->
+						<section class="section">
+							<h4 class="section-title">Model Selector Order</h4>
+							<p class="field-desc">Drag to reorder pinned models. Click the pin icon to show or hide models in the selector.</p>
+
+							{#if getModels().length === 0}
+								<p class="field-desc">No models found.</p>
+							{:else}
 								<div class="model-list">
-									{#each unpinnedModels as model (model.id)}
-										<div class="model-item">
+									{#each pinnedModels as model (model.id)}
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div
+											class="model-item draggable"
+											class:drag-over={dragOverModelId === model.id}
+											draggable="true"
+											ondragstart={() => handleDragStart(model.id)}
+											ondragover={(e) => handleDragOver(e, model.id)}
+											ondragleave={handleDragLeave}
+											ondrop={(e) => handleDrop(e, model.id)}
+											ondragend={handleDragEnd}
+										>
+											<div class="drag-handle" title="Drag to reorder">
+												<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+													<line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" />
+												</svg>
+											</div>
 											<div class="model-info">
 												{#if editingModelId === model.id}
 													<div class="rename-row">
@@ -558,18 +575,20 @@
 											{#if editingModelId !== model.id}
 												<div class="model-actions">
 													<button
-														class="small-btn pin-btn"
+														class="small-btn pin-btn pinned"
 														onclick={() => togglePin(model)}
-														title="Pin to selector"
+														title="Unpin from selector"
 													>
 														<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 															<path d="M12 17v5M6.7 3.5l3.6 3.6L7.5 9.9l6.6 6.6 2.8-2.8 3.6 3.6" />
 															<path d="M17.3 3.5L20.5 6.7" />
 														</svg>
 													</button>
-													<button class="small-btn muted" onclick={() => startRename(model)} title="Rename">
-														Rename
-													</button>
+													{#if !isTierModel(model)}
+														<button class="small-btn muted" onclick={() => startRename(model)} title="Rename">
+															Rename
+														</button>
+													{/if}
 													{#if !model.active && !model.loaded}
 														<button
 															class="small-btn danger-text"
@@ -583,78 +602,109 @@
 										</div>
 									{/each}
 								</div>
-							{/if}
-						{/if}
 
-						<p class="field-desc" style="margin-top: 12px;">
-							To add a new model, place a .gguf file in the models folder.
-						</p>
-
-						<div class="button-row">
-							<button class="secondary-btn" onclick={() => api.openFolder('models')}>
-								Open Models Folder
-							</button>
-							<button class="secondary-btn" onclick={() => api.refreshModels().then(() => loadModels())}>
-								Refresh
-							</button>
-						</div>
-					</section>
-
-					<!-- ==================== CHAT BEHAVIOR ==================== -->
-					<section class="section">
-						<h4 class="section-title">Chat Behavior</h4>
-
-						<div class="field">
-							<span class="field-label">Custom Instructions</span>
-							<p class="field-desc">
-								Additional instructions included with every message. For example: "Always respond in German" or "You are a coding assistant."
-							</p>
-							<textarea
-								class="textarea"
-								rows="3"
-								bind:value={config.custom_instructions}
-								placeholder="Enter custom instructions..."
-							></textarea>
-						</div>
-
-						{#if config.pro_mode}
-							<div class="field">
-								<button class="collapsible" onclick={() => (systemPromptOpen = !systemPromptOpen)}>
-									<span>
-										System Prompt (Advanced)
-										{#if config.system_prompt}
-											<span class="modified-badge">Modified</span>
-										{/if}
-									</span>
-									<svg
-										width="14" height="14" viewBox="0 0 24 24"
-										fill="none" stroke="currentColor" stroke-width="2"
-										class:rotated={systemPromptOpen}
-									>
-										<polyline points="6 9 12 15 18 9" />
-									</svg>
-								</button>
-								{#if systemPromptOpen}
-									<div class="collapsible-content">
-										<textarea
-											class="textarea system-prompt-textarea"
-											rows="6"
-											bind:value={config.system_prompt}
-											placeholder={defaultPrompt}
-										></textarea>
-										<div class="button-row" style="margin-top: 8px;">
-											<button class="small-btn muted" onclick={resetSystemPrompt}>
-												Reset to Default
-											</button>
-										</div>
+								{#if unpinnedModels.length > 0}
+									<p class="other-models-label">Other models</p>
+									<div class="model-list">
+										{#each unpinnedModels as model (model.id)}
+											<div class="model-item">
+												<div class="model-info">
+													{#if editingModelId === model.id}
+														<div class="rename-row">
+															<input
+																class="rename-input"
+																bind:value={editingName}
+																onkeydown={(e) => {
+																	if (e.key === 'Enter') saveRename();
+																	if (e.key === 'Escape') cancelRename();
+																}}
+															/>
+															<button class="small-btn" onclick={saveRename}>Save</button>
+															<button class="small-btn muted" onclick={cancelRename}>Cancel</button>
+														</div>
+													{:else}
+														<div class="model-name-row">
+															<span class="model-name">{model.name}</span>
+															<span class="badge tier-badge tier-{model.tier}">{tierLabel(model.tier)}</span>
+															{#if model.vision}
+																<span class="badge vision-badge" title="Supports image input">Vision</span>
+															{/if}
+														</div>
+														<div class="model-meta">
+															{#if model.size}
+																<span>{formatSize(model.size)}</span>
+															{/if}
+														</div>
+													{/if}
+												</div>
+												{#if editingModelId !== model.id}
+													<div class="model-actions">
+														<button
+															class="small-btn pin-btn"
+															onclick={() => togglePin(model)}
+															title="Pin to selector"
+														>
+															<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																<path d="M12 17v5M6.7 3.5l3.6 3.6L7.5 9.9l6.6 6.6 2.8-2.8 3.6 3.6" />
+																<path d="M17.3 3.5L20.5 6.7" />
+															</svg>
+														</button>
+														<button class="small-btn muted" onclick={() => startRename(model)} title="Rename">
+															Rename
+														</button>
+														{#if !model.active && !model.loaded}
+															<button
+																class="small-btn danger-text"
+																onclick={() => confirmDeleteModel(model)}
+															>
+																{deleteModelConfirm === model.id ? 'Confirm?' : 'Delete'}
+															</button>
+														{/if}
+													</div>
+												{/if}
+											</div>
+										{/each}
 									</div>
 								{/if}
-							</div>
-						{/if}
-					</section>
+							{/if}
 
-					<!-- ==================== INFERENCE PARAMETERS (Pro) ==================== -->
-					{#if config.pro_mode}
+							<p class="field-desc" style="margin-top: 12px;">
+								To add a new model, place a .gguf file in the models folder.
+							</p>
+
+							<div class="button-row">
+								<button class="secondary-btn" onclick={() => api.openFolder('models')}>
+									Open Models Folder
+								</button>
+								<button class="secondary-btn" onclick={() => api.refreshModels().then(() => loadModels())}>
+									Refresh
+								</button>
+							</div>
+						</section>
+
+					{:else if activeTab === 'advanced'}
+						<!-- ==================== SYSTEM PROMPT ==================== -->
+						<section class="section">
+							<h4 class="section-title">
+								System Prompt
+								{#if config.system_prompt}
+									<span class="modified-badge">Modified</span>
+								{/if}
+							</h4>
+							<textarea
+								class="textarea system-prompt-textarea"
+								rows="6"
+								bind:value={config.system_prompt}
+								placeholder={defaultPrompt}
+							></textarea>
+							<div class="button-row" style="margin-top: 8px;">
+								<button class="small-btn muted" onclick={resetSystemPrompt}>
+									Reset to Default
+								</button>
+							</div>
+						</section>
+
+						<!-- ==================== INFERENCE PARAMETERS ==================== -->
 						<section class="section">
 							<h4 class="section-title">Inference Parameters</h4>
 
@@ -663,7 +713,6 @@
 									<span class="field-label">Temperature</span>
 									<span class="slider-value">{config.temperature.toFixed(2)}</span>
 								</div>
-								<p class="field-desc">Higher = more creative, lower = more focused</p>
 								<input type="range" class="slider" min="0" max="2" step="0.05" bind:value={config.temperature} />
 							</div>
 
@@ -672,13 +721,11 @@
 									<span class="field-label">Top P</span>
 									<span class="slider-value">{config.top_p.toFixed(2)}</span>
 								</div>
-								<p class="field-desc">Controls diversity of word choices</p>
 								<input type="range" class="slider" min="0" max="1" step="0.05" bind:value={config.top_p} />
 							</div>
 
 							<div class="field">
 								<span class="field-label">Top K</span>
-								<p class="field-desc">Limits the number of word choices considered</p>
 								<input type="number" class="number-input" min="0" max="200" bind:value={config.top_k} />
 							</div>
 
@@ -687,19 +734,18 @@
 									<span class="field-label">Repeat Penalty</span>
 									<span class="slider-value">{config.repeat_penalty.toFixed(2)}</span>
 								</div>
-								<p class="field-desc">Reduces repetition in responses</p>
 								<input type="range" class="slider" min="0" max="2" step="0.05" bind:value={config.repeat_penalty} />
 							</div>
 
 							<div class="field">
 								<span class="field-label">Max Tokens</span>
-								<p class="field-desc">Maximum response length. 0 = no limit.</p>
+								<p class="field-desc">0 = no limit</p>
 								<input type="number" class="number-input" min="0" max="32768" bind:value={config.max_tokens} />
 							</div>
 
 							<div class="field">
 								<span class="field-label">Seed</span>
-								<p class="field-desc">Fixed seed for reproducible responses. -1 = random.</p>
+								<p class="field-desc">-1 = random</p>
 								<input type="number" class="number-input" min="-1" max="999999" bind:value={config.seed} />
 							</div>
 
@@ -709,10 +755,8 @@
 								</button>
 							</div>
 						</section>
-					{/if}
 
-					<!-- ==================== SERVER CONFIG (Pro) ==================== -->
-					{#if config.pro_mode}
+						<!-- ==================== SERVER CONFIG ==================== -->
 						<section class="section">
 							<h4 class="section-title">Server Configuration</h4>
 
@@ -756,46 +800,16 @@
 								</button>
 							</div>
 						</section>
+
+						<!-- ==================== SAVE BUTTON ==================== -->
+						{#if error}
+							<p class="error-msg">{error}</p>
+						{/if}
+						<button class="save-btn" onclick={save} disabled={saving}>
+							{saving ? 'Saving...' : 'Save Settings'}
+						</button>
 					{/if}
 
-					<!-- ==================== SAVE BUTTON ==================== -->
-					{#if error}
-						<p class="error-msg">{error}</p>
-					{/if}
-					<button class="save-btn" onclick={save} disabled={saving}>
-						{saving ? 'Saving...' : 'Save Settings'}
-					</button>
-
-					<!-- ==================== DANGER ZONE ==================== -->
-					<section class="section danger-zone">
-						<h4 class="section-title danger-title">Danger Zone</h4>
-
-						<div class="field">
-							<span class="field-label">Delete All Conversations</span>
-							<p class="field-desc">
-								This will permanently delete all {getConversations().length} conversation{getConversations().length !== 1 ? 's' : ''}. This cannot be undone.
-							</p>
-							{#if deleteAllStep === 0}
-								<button
-									class="danger-btn"
-									onclick={handleDeleteAll}
-									disabled={getConversations().length === 0}
-								>
-									Delete All Conversations
-								</button>
-							{:else}
-								<button class="danger-btn confirm" onclick={handleDeleteAll}>
-									Yes, delete all conversations
-								</button>
-							{/if}
-						</div>
-
-						<div class="field uninstall-info">
-							<p class="field-desc">
-								To completely remove Fllint from your system, delete the Fllint folder. All models, conversations, and settings are stored there — nothing else is left on your computer.
-							</p>
-						</div>
-					</section>
 				</div>
 			{/if}
 		</div>
@@ -846,6 +860,37 @@
 	.back-btn:hover {
 		background: var(--bg-hover);
 		color: var(--text-primary);
+	}
+
+	/* Tab bar */
+	.tab-bar {
+		display: flex;
+		gap: 0;
+		padding: 0 24px;
+		max-width: calc(560px + 48px);
+		margin: 0 auto;
+		width: 100%;
+		border-bottom: 1px solid var(--border-light);
+		flex-shrink: 0;
+	}
+
+	.tab {
+		padding: 10px 16px;
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: var(--text-muted);
+		border-bottom: 2px solid transparent;
+		margin-bottom: -1px;
+		transition: all var(--transition);
+	}
+
+	.tab:hover {
+		color: var(--text-secondary);
+	}
+
+	.tab.active {
+		color: var(--accent);
+		border-bottom-color: var(--accent);
 	}
 
 	.settings-body {
@@ -1302,34 +1347,6 @@
 		font-size: 0.8rem;
 	}
 
-	/* Collapsible */
-	.collapsible {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		width: 100%;
-		padding: 8px 0;
-		color: var(--text-secondary);
-		font-size: 0.85rem;
-		font-weight: 500;
-	}
-
-	.collapsible:hover {
-		color: var(--text-primary);
-	}
-
-	.collapsible svg {
-		transition: transform var(--transition);
-	}
-
-	.collapsible svg.rotated {
-		transform: rotate(180deg);
-	}
-
-	.collapsible-content {
-		padding-top: 8px;
-	}
-
 	.modified-badge {
 		font-size: 0.7rem;
 		padding: 1px 6px;
@@ -1338,6 +1355,8 @@
 		color: var(--accent);
 		margin-left: 6px;
 		font-weight: 600;
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	/* Sliders */

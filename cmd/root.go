@@ -81,12 +81,14 @@ func Run(frontendFS fs.FS) {
 	}
 	log.Printf("Fllint ready at %s", url)
 
-	// Server is confirmed up — open browser
-	go func() {
-		if err := launcher.OpenBrowser(url); err != nil {
-			log.Printf("Could not open browser: %v (open %s manually)", err, url)
-		}
-	}()
+	// Server is confirmed up — open browser (skip in dev mode, Vite serves the frontend)
+	if frontendFS != nil {
+		go func() {
+			if err := launcher.OpenBrowser(url); err != nil {
+				log.Printf("Could not open browser: %v (open %s manually)", err, url)
+			}
+		}()
+	}
 
 	// Shared shutdown logic — safe to call from multiple goroutines
 	var shutdownOnce sync.Once
