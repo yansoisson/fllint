@@ -49,7 +49,10 @@ type chatRequest struct {
 	Content        string   `json:"content"`
 	Images         []string `json:"images,omitempty"`
 	ModelID        string   `json:"model_id,omitempty"`
+	NoReasoning    bool     `json:"no_reasoning,omitempty"`
+	Retry          bool     `json:"retry,omitempty"`
 }
+
 
 func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	var req chatRequest
@@ -143,13 +146,24 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Append user message
-	userMsg := llm.ChatMessage{Role: "user", Content: req.Content, Images: req.Images}
-	conv, err = h.store.AppendMessage(conv.ID, userMsg)
-	if err != nil {
-		writeErrorJSON(w, http.StatusInternalServerError, "store_error",
-			"Failed to save message.")
-		return
+	if req.Retry {
+		// On retry (e.g. answer-now), remove the last assistant message if it was
+		// a partial response from the cancelled request.
+		if len(conv.Messages) > 0 && conv.Messages[len(conv.Messages)-1].Role == "assistant" {
+			conv, err = h.store.RemoveLastMessage(conv.ID)
+			if err != nil {
+				log.Printf("WARNING: failed to remove partial assistant message for conv %s: %v", conv.ID, err)
+			}
+		}
+	} else {
+		// Append user message
+		userMsg := llm.ChatMessage{Role: "user", Content: req.Content, Images: req.Images}
+		conv, err = h.store.AppendMessage(conv.ID, userMsg)
+		if err != nil {
+			writeErrorJSON(w, http.StatusInternalServerError, "store_error",
+				"Failed to save message.")
+			return
+		}
 	}
 
 	// Build messages with system prompt prepended
@@ -168,6 +182,10 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	// Enqueue the inference job
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+
+	if req.NoReasoning {
+		ctx = context.WithValue(ctx, llm.NoReasoningKey, true)
+	}
 
 	item, position := h.queue.Enqueue(ctx, modelID, engineMessages)
 
@@ -325,8 +343,9 @@ done:
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
 
-	// Persist assistant response
-	if fullResponse != "" || fullReasoning != "" {
+	// Persist assistant response (only if there's actual content — reasoning-only
+	// partial responses from cancellations are discarded)
+	if fullResponse != "" {
 		assistantMsg := llm.ChatMessage{
 			Role:             "assistant",
 			Content:          fullResponse,

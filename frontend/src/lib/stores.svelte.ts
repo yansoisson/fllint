@@ -14,6 +14,9 @@ let streamingContent = $state('');
 let streamingReasoning = $state('');
 let thinkingDuration = $state<number | null>(null);
 let streamAbortController: AbortController | null = null;
+let answerNowRequested = false;
+let lastSentContent = '';
+let lastSentImages: string[] = [];
 
 // --- Queue ---
 let queuePosition = $state<number | null>(null);
@@ -455,30 +458,41 @@ export async function deleteConversation(id: string) {
 	}
 }
 
-export async function sendMessage(content: string) {
+export async function sendMessage(content: string, opts?: { noReasoning?: boolean }) {
 	chatError = null;
 
-	// Upload pending images first
-	let imageUrls: string[] = [];
-	if (pendingImages.length > 0) {
-		try {
-			const uploads = await Promise.all(
-				pendingImages.map((img) => api.uploadImage(img.file))
-			);
-			imageUrls = uploads.map((result) => result.url);
-		} catch {
-			chatError = 'Failed to upload image. Please try again.';
-			return;
-		}
-		clearPendingImages();
-	}
+	const noReasoning = opts?.noReasoning ?? false;
 
-	// Build user message with images for local display
-	const userMsg: ChatMessage = { role: 'user', content };
-	if (imageUrls.length > 0) {
-		userMsg.images = imageUrls;
+	// Upload pending images first (skip if re-sending for answer-now)
+	let imageUrls: string[] = [];
+	if (!noReasoning) {
+		if (pendingImages.length > 0) {
+			try {
+				const uploads = await Promise.all(
+					pendingImages.map((img) => api.uploadImage(img.file))
+				);
+				imageUrls = uploads.map((result) => result.url);
+			} catch {
+				chatError = 'Failed to upload image. Please try again.';
+				return;
+			}
+			clearPendingImages();
+		}
+
+		// Build user message with images for local display
+		const userMsg: ChatMessage = { role: 'user', content };
+		if (imageUrls.length > 0) {
+			userMsg.images = imageUrls;
+		}
+		messages = [...messages, userMsg];
+
+		// Track what was sent so answerNow can re-use it
+		lastSentContent = content;
+		lastSentImages = imageUrls;
+	} else {
+		// Re-sending: use the previously tracked images
+		imageUrls = lastSentImages;
 	}
-	messages = [...messages, userMsg];
 
 	isStreaming = true;
 	streamingContent = '';
@@ -496,7 +510,8 @@ export async function sendMessage(content: string) {
 			activeConversationId ?? undefined,
 			imageUrls.length > 0 ? imageUrls : undefined,
 			effectiveModelId ?? undefined,
-			streamAbortController.signal
+			streamAbortController.signal,
+			noReasoning ? { noReasoning: true, retry: true } : undefined
 		)) {
 			if (token.conversation_id && !activeConversationId) {
 				activeConversationId = token.conversation_id;
@@ -524,7 +539,7 @@ export async function sendMessage(content: string) {
 				chatError = token.error;
 			}
 		}
-		if (streamingContent || streamingReasoning) {
+		if (streamingContent) {
 			const msg: ChatMessage = { role: 'assistant', content: streamingContent };
 			if (streamingReasoning) {
 				msg.reasoning = streamingReasoning;
@@ -537,8 +552,13 @@ export async function sendMessage(content: string) {
 		await loadConversations();
 	} catch (err) {
 		if (err instanceof DOMException && err.name === 'AbortError') {
-			// User cancelled — keep partial response if any
-			if (streamingContent || streamingReasoning) {
+			if (answerNowRequested) {
+				// Don't keep partial response — answerNow will re-send
+				answerNowRequested = false;
+				return;
+			}
+			// User cancelled — keep partial response only if there's actual content
+			if (streamingContent) {
 				const msg: ChatMessage = { role: 'assistant', content: streamingContent };
 				if (streamingReasoning) {
 					msg.reasoning = streamingReasoning;
@@ -561,6 +581,23 @@ export async function sendMessage(content: string) {
 		queuePosition = null;
 		queueItemId = null;
 	}
+}
+
+export function answerNow() {
+	if (!isStreaming || !streamAbortController) return;
+
+	// Set flag so abort handler knows not to keep partial response
+	answerNowRequested = true;
+	const content = lastSentContent;
+
+	// Cancel the current stream
+	streamAbortController.abort();
+
+	// Re-send the same message without reasoning
+	// Small delay to let the abort handler finish
+	setTimeout(() => {
+		sendMessage(content, { noReasoning: true });
+	}, 50);
 }
 
 export async function loadModels() {

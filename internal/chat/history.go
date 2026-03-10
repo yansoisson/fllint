@@ -158,6 +158,25 @@ func (s *Store) AppendMessage(id string, msg llm.ChatMessage) (*Conversation, er
 	return conv, nil
 }
 
+// RemoveLastMessage removes the last message from a conversation and persists it.
+func (s *Store) RemoveLastMessage(id string) (*Conversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conv, err := s.load(id)
+	if err != nil {
+		return nil, err
+	}
+	if len(conv.Messages) > 0 {
+		conv.Messages = conv.Messages[:len(conv.Messages)-1]
+		conv.UpdatedAt = time.Now()
+		if err := s.save(conv); err != nil {
+			return nil, err
+		}
+	}
+	return conv, nil
+}
+
 func (s *Store) load(id string) (*Conversation, error) {
 	path := filepath.Join(s.dir, id+".json")
 	data, err := os.ReadFile(path)

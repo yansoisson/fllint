@@ -187,6 +187,7 @@ func (e *LlamaCppEngine) Start() error {
 	if e.mmprojPath != "" {
 		args = append(args, "--mmproj", e.mmprojPath)
 	}
+	args = append(args, "--jinja")
 
 	// Use exec.Command (NOT CommandContext) — we handle process lifecycle
 	// manually in supervise/Stop to avoid Go's internal double-Wait issues.
@@ -434,6 +435,10 @@ func (e *LlamaCppEngine) ChatStream(ctx context.Context, messages []ChatMessage)
 	if params.Seed >= 0 {
 		req.Seed = params.Seed
 	}
+	if ctx.Value(NoReasoningKey) == true {
+		// Pass enable_thinking=false via chat_template_kwargs (requires --jinja)
+		req.ChatTemplateKwargs = map[string]any{"enable_thinking": false}
+	}
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -561,15 +566,16 @@ type oaiMessage struct {
 }
 
 type oaiRequest struct {
-	Model         string       `json:"model"`
-	Messages      []oaiMessage `json:"messages"`
-	Stream        bool         `json:"stream"`
-	Temperature   float64      `json:"temperature,omitempty"`
-	TopP          float64      `json:"top_p,omitempty"`
-	TopK          int          `json:"top_k,omitempty"`
-	RepeatPenalty float64      `json:"repeat_penalty,omitempty"`
-	MaxTokens     int          `json:"max_tokens,omitempty"`
-	Seed          int          `json:"seed,omitempty"`
+	Model              string            `json:"model"`
+	Messages           []oaiMessage      `json:"messages"`
+	Stream             bool              `json:"stream"`
+	Temperature        float64           `json:"temperature,omitempty"`
+	TopP               float64           `json:"top_p,omitempty"`
+	TopK               int               `json:"top_k,omitempty"`
+	RepeatPenalty      float64           `json:"repeat_penalty,omitempty"`
+	MaxTokens          int               `json:"max_tokens,omitempty"`
+	Seed               int               `json:"seed,omitempty"`
+	ChatTemplateKwargs map[string]any    `json:"chat_template_kwargs,omitempty"`
 }
 
 type oaiContentPart struct {

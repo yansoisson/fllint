@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { answerNow } from '$lib/stores.svelte';
+
 	let {
 		reasoning,
 		duration = null,
@@ -39,22 +41,32 @@
 		if (duration !== null) return formatDuration(duration);
 		return 'Reasoning';
 	}
+
+	let showAnswerNow = $derived(isStreaming && duration === null && reasoning.length > 0);
 </script>
 
 <div class="thinking-block">
-	<button class="thinking-toggle" onclick={toggle}>
-		<span class="toggle-icon" class:expanded>{@html '&#9656;'}</span>
-		<span class="thinking-label">
-			{getLabel()}
-			{#if isStreaming && duration === null}
-				<span class="thinking-dots">
-					<span class="dot"></span>
-					<span class="dot"></span>
-					<span class="dot"></span>
-				</span>
-			{/if}
-		</span>
-	</button>
+	<div class="thinking-header">
+		<button class="thinking-toggle" onclick={toggle}>
+			<span class="toggle-icon" class:expanded>{@html '&#9656;'}</span>
+			<span class="thinking-label">
+				{getLabel()}
+				{#if isStreaming && duration === null}
+					<span class="thinking-dots">
+						<span class="dot"></span>
+						<span class="dot"></span>
+						<span class="dot"></span>
+					</span>
+				{/if}
+			</span>
+		</button>
+
+		{#if showAnswerNow}
+			<button class="answer-now-btn" onclick={answerNow}>
+				Answer now
+			</button>
+		{/if}
+	</div>
 
 	{#if expanded}
 		<div class="thinking-content">
@@ -67,6 +79,12 @@
 	.thinking-block {
 		margin-bottom: 12px;
 		font-size: 0.9375rem;
+	}
+
+	.thinking-header {
+		display: flex;
+		align-items: center;
+		gap: 12px;
 	}
 
 	.thinking-toggle {
@@ -102,6 +120,21 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
+	}
+
+	.answer-now-btn {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 0.85rem;
+		font-family: inherit;
+		padding: 4px 0;
+		transition: color var(--transition);
+	}
+
+	.answer-now-btn:hover {
+		color: var(--text-primary);
 	}
 
 	.thinking-dots {

@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// contextKey is an unexported type for context keys in this package.
+type contextKey string
+
+// NoReasoningKey is the context key for the no-reasoning flag.
+const NoReasoningKey contextKey = "no_reasoning"
+
 // ChatMessage represents a single message in a conversation.
 type ChatMessage struct {
 	Role             string   `json:"role"` // "user", "assistant", "system"
