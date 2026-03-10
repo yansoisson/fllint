@@ -127,6 +127,20 @@ func (s *Store) Count() int {
 	return count
 }
 
+// SetModelID sets the model ID for a conversation.
+func (s *Store) SetModelID(id string, modelID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conv, err := s.load(id)
+	if err != nil {
+		return err
+	}
+	conv.ModelID = modelID
+	conv.UpdatedAt = time.Now()
+	return s.save(conv)
+}
+
 // AppendMessage adds a message to a conversation and persists it.
 func (s *Store) AppendMessage(id string, msg llm.ChatMessage) (*Conversation, error) {
 	s.mu.Lock()

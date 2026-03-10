@@ -2,16 +2,17 @@
 	import {
 		getConversations,
 		getActiveConversationId,
-		selectConversation,
-		newConversation,
 		deleteConversation,
+		navigateToNewConversation,
 		getSidebarOpen
 	} from '$lib/stores.svelte';
 
 	let confirmDeleteId = $state<string | null>(null);
 	let confirmTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	function handleDelete(id: string) {
+	function handleDelete(id: string, e: MouseEvent) {
+		e.preventDefault();
+		e.stopPropagation();
 		if (confirmDeleteId === id) {
 			deleteConversation(id);
 			confirmDeleteId = null;
@@ -27,7 +28,7 @@
 <aside class="sidebar" class:open={getSidebarOpen()}>
 	<div class="header">
 		<span class="brand">Fllint</span>
-		<button class="new-btn" onclick={newConversation} title="New chat">
+		<button class="new-btn" onclick={navigateToNewConversation} title="New chat">
 			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 				<path d="M12 20h9" />
 				<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
@@ -36,26 +37,20 @@
 	</div>
 	<div class="list">
 		{#each getConversations() as conv}
-			<div
+			<a
 				class="conv-item"
 				class:active={getActiveConversationId() === conv.id}
-				role="button"
-				tabindex="0"
-				onclick={() => selectConversation(conv.id)}
-				onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') selectConversation(conv.id); }}
+				href="/chat/{conv.id}"
 			>
 				<span class="title">{conv.title}</span>
 				<button
 					class="delete"
 					class:confirm={confirmDeleteId === conv.id}
-					onclick={(e: MouseEvent) => {
-						e.stopPropagation();
-						handleDelete(conv.id);
-					}}
+					onclick={(e) => handleDelete(conv.id, e)}
 				>
 					{confirmDeleteId === conv.id ? '?' : '\u00d7'}
 				</button>
-			</div>
+			</a>
 		{/each}
 
 		{#if getConversations().length === 0}
@@ -126,6 +121,8 @@
 		transition: background var(--transition);
 		margin-bottom: 1px;
 		cursor: pointer;
+		text-decoration: none;
+		color: inherit;
 	}
 
 	.conv-item:hover {

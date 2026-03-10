@@ -3,11 +3,15 @@
 		getSettingsOpen,
 		toggleSettings,
 		applyTheme,
+		syncConfig,
 		getModels,
 		loadModels,
+		loadStatus,
+		unloadModel,
 		deleteAllConversations,
 		showNotification,
-		getConversations
+		getConversations,
+		getEngineStatus
 	} from '$lib/stores.svelte';
 	import * as api from '$lib/api';
 	import type { AppConfig, ModelInfo } from '$lib/types';
@@ -23,6 +27,110 @@
 	let deleteAllStep = $state(0);
 	let deleteAllTimeout: ReturnType<typeof setTimeout> | null = null;
 	let systemPromptOpen = $state(false);
+	let unloadingModelId = $state<string | null>(null);
+	let dragModelId = $state<string | null>(null);
+	let dragOverModelId = $state<string | null>(null);
+
+	// Loaded models derived from model list
+	let loadedModels = $derived(getModels().filter((m) => m.loaded));
+	let status = $derived(getEngineStatus());
+
+	function isModelStarting(modelId: string): boolean {
+		if (!status?.engines) return false;
+		return status.engines.some((e) => e.model_id === modelId && e.engine_state === 'starting');
+	}
+
+	// Pinned model IDs (from config, or default tier models)
+	let pinnedIds = $derived.by(() => {
+		if (config?.pinned_models && config.pinned_models.length > 0) {
+			return config.pinned_models;
+		}
+		return getModels()
+			.filter((m) => m.tier === 'lite' || m.tier === 'standard' || m.tier === 'pro')
+			.map((m) => m.id);
+	});
+
+	// Ordered pinned models
+	let pinnedModels = $derived.by(() => {
+		const allModels = getModels();
+		const result: ModelInfo[] = [];
+		for (const id of pinnedIds) {
+			const m = allModels.find((model) => model.id === id);
+			if (m) result.push(m);
+		}
+		return result;
+	});
+
+	// Unpinned models
+	let unpinnedModels = $derived(getModels().filter((m) => !pinnedIds.includes(m.id)));
+
+	function togglePin(model: ModelInfo) {
+		if (!config) return;
+		const currentPinned = [...(config.pinned_models && config.pinned_models.length > 0
+			? config.pinned_models
+			: pinnedIds)];
+
+		if (currentPinned.includes(model.id)) {
+			config.pinned_models = currentPinned.filter((id) => id !== model.id);
+		} else {
+			config.pinned_models = [...currentPinned, model.id];
+		}
+		api.updateConfig(config).then((c) => {
+			config = c;
+			syncConfig(c);
+		});
+	}
+
+	async function handleUnload(modelId: string) {
+		unloadingModelId = modelId;
+		try {
+			await unloadModel(modelId);
+		} finally {
+			unloadingModelId = null;
+		}
+	}
+
+	// Drag-and-drop reorder for pinned models
+	function handleDragStart(modelId: string) {
+		dragModelId = modelId;
+	}
+
+	function handleDragOver(e: DragEvent, modelId: string) {
+		e.preventDefault();
+		dragOverModelId = modelId;
+	}
+
+	function handleDragLeave() {
+		dragOverModelId = null;
+	}
+
+	function handleDrop(e: DragEvent, targetId: string) {
+		e.preventDefault();
+		dragOverModelId = null;
+		if (!dragModelId || dragModelId === targetId || !config) return;
+
+		const currentPinned = [...(config.pinned_models && config.pinned_models.length > 0
+			? config.pinned_models
+			: pinnedIds)];
+
+		const fromIdx = currentPinned.indexOf(dragModelId);
+		const toIdx = currentPinned.indexOf(targetId);
+		if (fromIdx === -1 || toIdx === -1) return;
+
+		currentPinned.splice(fromIdx, 1);
+		currentPinned.splice(toIdx, 0, dragModelId);
+		config.pinned_models = currentPinned;
+		api.updateConfig(config).then((c) => {
+			config = c;
+			syncConfig(c);
+		});
+		dragModelId = null;
+	}
+
+	function handleDragEnd() {
+		dragModelId = null;
+		dragOverModelId = null;
+	}
 
 	$effect(() => {
 		if (getSettingsOpen()) {
@@ -41,10 +149,8 @@
 		loading = true;
 		error = null;
 		try {
-			// Load config first — this always works
 			config = await api.getConfig();
-			await loadModels();
-			// Load default prompt separately — gracefully handle failure
+			await Promise.all([loadModels(), loadStatus()]);
 			try {
 				defaultPrompt = await api.getDefaultSystemPrompt();
 			} catch {
@@ -77,13 +183,19 @@
 		if (!config) return;
 		config.theme = theme;
 		applyTheme(theme);
-		api.updateConfig(config).then((c) => (config = c));
+		api.updateConfig(config).then((c) => {
+			config = c;
+			syncConfig(c);
+		});
 	}
 
 	function toggleProMode() {
 		if (!config) return;
 		config.pro_mode = !config.pro_mode;
-		api.updateConfig(config).then((c) => (config = c));
+		api.updateConfig(config).then((c) => {
+			config = c;
+			syncConfig(c);
+		});
 	}
 
 	function formatSize(bytes?: number): string {
@@ -173,9 +285,16 @@
 		config.system_prompt = '';
 	}
 
+	function closeSettingsNav() {
+		toggleSettings();
+		if (typeof window !== 'undefined' && window.location.pathname === '/settings') {
+			window.history.back();
+		}
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape' && getSettingsOpen()) {
-			toggleSettings();
+			closeSettingsNav();
 		}
 	}
 </script>
@@ -185,7 +304,7 @@
 {#if getSettingsOpen()}
 	<div class="settings-page">
 		<div class="settings-header">
-			<button class="back-btn" onclick={toggleSettings} aria-label="Back to chat">
+			<button class="back-btn" onclick={closeSettingsNav} aria-label="Back to chat">
 				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<polyline points="15 18 9 12 15 6" />
 				</svg>
@@ -275,16 +394,73 @@
 						</div>
 					</section>
 
-					<!-- ==================== MODEL MANAGEMENT ==================== -->
+					<!-- ==================== LOADED MODELS ==================== -->
+					{#if loadedModels.length > 0}
+						<section class="section">
+							<h4 class="section-title">Loaded Models</h4>
+							<div class="model-list">
+								{#each loadedModels as model (model.id)}
+									<div class="model-item loaded-item">
+										<div class="model-info">
+											<div class="model-name-row">
+												<span class="loaded-dot-settings"></span>
+												<span class="model-name">{model.name}</span>
+												{#if model.active}
+													<span class="badge active-badge">Default</span>
+												{/if}
+												{#if isModelStarting(model.id)}
+													<span class="badge starting-badge">Loading</span>
+												{:else}
+													<span class="badge loaded-badge">Loaded</span>
+												{/if}
+											</div>
+											<div class="model-meta">
+												{#if model.size}
+													<span>{formatSize(model.size)}</span>
+												{/if}
+											</div>
+										</div>
+										<div class="model-actions">
+											<button
+												class="small-btn unload-btn"
+												onclick={() => handleUnload(model.id)}
+												disabled={unloadingModelId === model.id}
+											>
+												{unloadingModelId === model.id ? 'Unloading...' : 'Unload'}
+											</button>
+										</div>
+									</div>
+								{/each}
+							</div>
+						</section>
+					{/if}
+
+					<!-- ==================== MODEL SELECTOR ORDER ==================== -->
 					<section class="section">
-						<h4 class="section-title">Models</h4>
+						<h4 class="section-title">Model Selector Order</h4>
+						<p class="field-desc">Drag to reorder pinned models. Click the pin icon to show or hide models in the selector.</p>
 
 						{#if getModels().length === 0}
 							<p class="field-desc">No models found.</p>
 						{:else}
 							<div class="model-list">
-								{#each getModels() as model (model.id)}
-									<div class="model-item" class:active-model={model.active}>
+								{#each pinnedModels as model (model.id)}
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div
+										class="model-item draggable"
+										class:drag-over={dragOverModelId === model.id}
+										draggable="true"
+										ondragstart={() => handleDragStart(model.id)}
+										ondragover={(e) => handleDragOver(e, model.id)}
+										ondragleave={handleDragLeave}
+										ondrop={(e) => handleDrop(e, model.id)}
+										ondragend={handleDragEnd}
+									>
+										<div class="drag-handle" title="Drag to reorder">
+											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" />
+											</svg>
+										</div>
 										<div class="model-info">
 											{#if editingModelId === model.id}
 												<div class="rename-row">
@@ -302,9 +478,6 @@
 											{:else}
 												<div class="model-name-row">
 													<span class="model-name">{model.name}</span>
-													{#if model.active}
-														<span class="badge active-badge">Active</span>
-													{/if}
 													<span class="badge tier-badge tier-{model.tier}">{tierLabel(model.tier)}</span>
 													{#if model.vision}
 														<span class="badge vision-badge" title="Supports image input">Vision</span>
@@ -319,17 +492,27 @@
 										</div>
 										{#if editingModelId !== model.id}
 											<div class="model-actions">
+												<button
+													class="small-btn pin-btn pinned"
+													onclick={() => togglePin(model)}
+													title="Unpin from selector"
+												>
+													<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+														<path d="M12 17v5M6.7 3.5l3.6 3.6L7.5 9.9l6.6 6.6 2.8-2.8 3.6 3.6" />
+														<path d="M17.3 3.5L20.5 6.7" />
+													</svg>
+												</button>
 												{#if !isTierModel(model)}
 													<button class="small-btn muted" onclick={() => startRename(model)} title="Rename">
 														Rename
 													</button>
 												{/if}
-												{#if !model.active}
+												{#if !model.active && !model.loaded}
 													<button
 														class="small-btn danger-text"
 														onclick={() => confirmDeleteModel(model)}
 													>
-														{deleteModelConfirm === model.id ? 'Confirm delete?' : 'Delete'}
+														{deleteModelConfirm === model.id ? 'Confirm?' : 'Delete'}
 													</button>
 												{/if}
 											</div>
@@ -337,6 +520,70 @@
 									</div>
 								{/each}
 							</div>
+
+							{#if unpinnedModels.length > 0}
+								<p class="other-models-label">Other models</p>
+								<div class="model-list">
+									{#each unpinnedModels as model (model.id)}
+										<div class="model-item">
+											<div class="model-info">
+												{#if editingModelId === model.id}
+													<div class="rename-row">
+														<input
+															class="rename-input"
+															bind:value={editingName}
+															onkeydown={(e) => {
+																if (e.key === 'Enter') saveRename();
+																if (e.key === 'Escape') cancelRename();
+															}}
+														/>
+														<button class="small-btn" onclick={saveRename}>Save</button>
+														<button class="small-btn muted" onclick={cancelRename}>Cancel</button>
+													</div>
+												{:else}
+													<div class="model-name-row">
+														<span class="model-name">{model.name}</span>
+														<span class="badge tier-badge tier-{model.tier}">{tierLabel(model.tier)}</span>
+														{#if model.vision}
+															<span class="badge vision-badge" title="Supports image input">Vision</span>
+														{/if}
+													</div>
+													<div class="model-meta">
+														{#if model.size}
+															<span>{formatSize(model.size)}</span>
+														{/if}
+													</div>
+												{/if}
+											</div>
+											{#if editingModelId !== model.id}
+												<div class="model-actions">
+													<button
+														class="small-btn pin-btn"
+														onclick={() => togglePin(model)}
+														title="Pin to selector"
+													>
+														<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+															<path d="M12 17v5M6.7 3.5l3.6 3.6L7.5 9.9l6.6 6.6 2.8-2.8 3.6 3.6" />
+															<path d="M17.3 3.5L20.5 6.7" />
+														</svg>
+													</button>
+													<button class="small-btn muted" onclick={() => startRename(model)} title="Rename">
+														Rename
+													</button>
+													{#if !model.active && !model.loaded}
+														<button
+															class="small-btn danger-text"
+															onclick={() => confirmDeleteModel(model)}
+														>
+															{deleteModelConfirm === model.id ? 'Confirm?' : 'Delete'}
+														</button>
+													{/if}
+												</div>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							{/if}
 						{/if}
 
 						<p class="field-desc" style="margin-top: 12px;">
@@ -772,8 +1019,43 @@
 		background: var(--bg-hover);
 	}
 
-	.model-item.active-model {
+	.model-item.loaded-item {
 		background: var(--accent-light);
+	}
+
+	.model-item.draggable {
+		cursor: grab;
+	}
+
+	.model-item.draggable:active {
+		cursor: grabbing;
+	}
+
+	.model-item.drag-over {
+		border-top: 2px solid var(--accent);
+		padding-top: 8px;
+	}
+
+	.drag-handle {
+		display: flex;
+		align-items: center;
+		padding: 4px;
+		margin-right: 8px;
+		color: var(--text-muted);
+		cursor: grab;
+		flex-shrink: 0;
+	}
+
+	.drag-handle:active {
+		cursor: grabbing;
+	}
+
+	.loaded-dot-settings {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--accent);
+		flex-shrink: 0;
 	}
 
 	.model-info {
@@ -805,6 +1087,14 @@
 		gap: 4px;
 		flex-shrink: 0;
 		margin-left: 8px;
+	}
+
+	.other-models-label {
+		margin-top: 16px;
+		margin-bottom: 8px;
+		font-size: 0.8rem;
+		font-weight: 500;
+		color: var(--text-secondary);
 	}
 
 	.badge {
@@ -856,6 +1146,32 @@
 		color: white;
 	}
 
+	.loaded-badge {
+		background: #d1fae5;
+		color: #065f46;
+	}
+
+	:global([data-theme='dark']) .loaded-badge {
+		background: #064e3b;
+		color: #6ee7b7;
+	}
+
+	.starting-badge {
+		background: #fef3c7;
+		color: #92400e;
+		animation: pulse-badge 1.5s ease-in-out infinite;
+	}
+
+	@keyframes pulse-badge {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.6; }
+	}
+
+	:global([data-theme='dark']) .starting-badge {
+		background: #451a03;
+		color: #fcd34d;
+	}
+
 	.vision-badge {
 		background: #fef3c7;
 		color: #92400e;
@@ -896,6 +1212,11 @@
 		color: var(--text-primary);
 	}
 
+	.small-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
 	.small-btn.muted {
 		color: var(--text-muted);
 	}
@@ -905,6 +1226,33 @@
 	}
 
 	.small-btn.danger-text:hover {
+		background: var(--danger-bg, #fef2f2);
+	}
+
+	.pin-btn {
+		color: var(--text-muted);
+		padding: 3px 5px;
+	}
+
+	.pin-btn.pinned {
+		color: var(--accent);
+	}
+
+	.pin-btn:hover {
+		color: var(--accent);
+		background: var(--accent-light);
+	}
+
+	.unload-btn {
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		padding: 3px 10px;
+		border-radius: var(--radius);
+	}
+
+	.unload-btn:hover:not(:disabled) {
+		border-color: var(--danger, #dc2626);
+		color: var(--danger, #dc2626);
 		background: var(--danger-bg, #fef2f2);
 	}
 

@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -17,6 +18,7 @@ import (
 	"github.com/fllint/fllint/internal/image"
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/prompt"
+	"github.com/fllint/fllint/internal/queue"
 )
 
 // Server holds the HTTP server and its dependencies.
@@ -24,6 +26,7 @@ type Server struct {
 	router     chi.Router
 	cfg        *config.Config
 	llmManager *llm.Manager
+	queue      *queue.Queue
 }
 
 // New creates a new Server with all routes configured.
@@ -38,10 +41,13 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager) (*Server
 		return nil, fmt.Errorf("init image handler: %w", err)
 	}
 
+	inferenceQueue := queue.NewQueue(llmManager)
+
 	s := &Server{
 		router:     chi.NewRouter(),
 		cfg:        cfg,
 		llmManager: llmManager,
+		queue:      inferenceQueue,
 	}
 
 	for _, mw := range CommonMiddleware() {
@@ -50,11 +56,13 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager) (*Server
 
 	// API routes
 	s.router.Route("/api", func(r chi.Router) {
-		chatHandler := chat.NewHandler(chatStore, llmManager)
+		chatHandler := chat.NewHandler(chatStore, llmManager, inferenceQueue)
 		r.Mount("/", chatHandler.Routes())
 
 		r.Get("/models", s.listModels)
 		r.Put("/models/active", s.setActiveModel)
+		r.Post("/models/load", s.loadModel)
+		r.Post("/models/unload", s.unloadModel)
 		r.Post("/models/refresh", s.refreshModels)
 		r.Post("/models/delete", s.deleteModel)
 		r.Post("/models/rename", s.renameModel)
@@ -67,6 +75,8 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager) (*Server
 		r.Get("/config", s.getConfig)
 		r.Put("/config", s.updateConfig)
 		r.Get("/config/system-prompt-default", s.getDefaultSystemPrompt)
+
+		r.Get("/memory", s.getMemory)
 
 		r.Post("/open-folder", s.openFolder)
 	})
@@ -87,6 +97,13 @@ func (s *Server) Addr() string {
 	return fmt.Sprintf(":%d", s.cfg.Port)
 }
 
+// StopQueue stops the inference queue worker and cancels all pending items.
+func (s *Server) StopQueue() {
+	if s.queue != nil {
+		s.queue.Stop()
+	}
+}
+
 // --- Model handlers ---
 
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +120,70 @@ func (s *Server) setActiveModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.llmManager.SetActive(req.ModelID); err != nil {
+		var memErr *llm.MemoryError
+		if errors.As(err, &memErr) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]any{
+				"error":           memErr.Error(),
+				"code":            "insufficient_memory",
+				"required_bytes":  memErr.RequiredBytes,
+				"available_bytes": memErr.AvailableBytes,
+				"model_name":      memErr.ModelName,
+			})
+			return
+		}
+		respondErrorJSON(w, http.StatusBadRequest, "engine_error", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) loadModel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ModelID string `json:"model_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+	if req.ModelID == "" {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "model_id is required.")
+		return
+	}
+	if err := s.llmManager.LoadModel(req.ModelID); err != nil {
+		var memErr *llm.MemoryError
+		if errors.As(err, &memErr) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]any{
+				"error":           memErr.Error(),
+				"code":            "insufficient_memory",
+				"required_bytes":  memErr.RequiredBytes,
+				"available_bytes": memErr.AvailableBytes,
+				"model_name":      memErr.ModelName,
+			})
+			return
+		}
+		respondErrorJSON(w, http.StatusBadRequest, "engine_error", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) unloadModel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ModelID string `json:"model_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+	if req.ModelID == "" {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "model_id is required.")
+		return
+	}
+	if err := s.llmManager.UnloadModel(req.ModelID); err != nil {
 		respondErrorJSON(w, http.StatusBadRequest, "engine_error", err.Error())
 		return
 	}
@@ -124,7 +205,7 @@ func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
 // --- Config handlers ---
 
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, http.StatusOK, s.cfg)
+	respondJSON(w, http.StatusOK, config.Get())
 }
 
 func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
@@ -143,18 +224,22 @@ func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
 		respondErrorJSON(w, http.StatusInternalServerError, "config_error", "Failed to save configuration.")
 		return
 	}
+	s.cfg = config.Get() // keep s.cfg in sync
 
-	// Live-update inference params on the running engine (no restart needed)
-	if engine := s.llmManager.Engine(); engine != nil {
-		if e, ok := engine.(*llm.LlamaCppEngine); ok {
-			e.SetInferenceParams(llm.InferenceParams{
-				Temperature:   c.Temperature,
-				TopP:          c.TopP,
-				TopK:          c.TopK,
-				RepeatPenalty: c.RepeatPenalty,
-				MaxTokens:     c.MaxTokens,
-				Seed:          c.Seed,
-			})
+	// Live-update inference params on ALL loaded engines (no restart needed)
+	newParams := llm.InferenceParams{
+		Temperature:   c.Temperature,
+		TopP:          c.TopP,
+		TopK:          c.TopK,
+		RepeatPenalty: c.RepeatPenalty,
+		MaxTokens:     c.MaxTokens,
+		Seed:          c.Seed,
+	}
+	for _, modelID := range s.llmManager.LoadedModelIDs() {
+		if engine := s.llmManager.GetEngine(modelID); engine != nil {
+			if e, ok := engine.(*llm.LlamaCppEngine); ok {
+				e.SetInferenceParams(newParams)
+			}
 		}
 	}
 
@@ -196,6 +281,10 @@ func (s *Server) renameModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) getMemory(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, s.llmManager.MemoryInfo())
 }
 
 func (s *Server) openFolder(w http.ResponseWriter, r *http.Request) {

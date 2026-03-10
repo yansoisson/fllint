@@ -1,12 +1,20 @@
 <script lang="ts">
+	import { page } from '$app/stores';
 	import ChatWindow from '$components/ChatWindow.svelte';
 	import InputBar from '$components/InputBar.svelte';
-	import { getMessages, getIsStreaming } from '$lib/stores.svelte';
-	import { newConversation } from '$lib/stores.svelte';
+	import {
+		selectConversation,
+		getMessages,
+		getIsStreaming,
+		getActiveConversationId
+	} from '$lib/stores.svelte';
 
-	// Ensure we're in "new chat" state when visiting /
+	// Load conversation when id param changes
 	$effect(() => {
-		newConversation();
+		const id = $page.params.id;
+		if (id && id !== getActiveConversationId()) {
+			selectConversation(id);
+		}
 	});
 </script>
 

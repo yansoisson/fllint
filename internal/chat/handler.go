@@ -1,27 +1,31 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/fllint/fllint/internal/config"
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/prompt"
+	"github.com/fllint/fllint/internal/queue"
 )
 
 // Handler holds dependencies for chat HTTP handlers.
 type Handler struct {
 	store   *Store
 	manager *llm.Manager
+	queue   *queue.Queue
 }
 
-func NewHandler(store *Store, manager *llm.Manager) *Handler {
-	return &Handler{store: store, manager: manager}
+func NewHandler(store *Store, manager *llm.Manager, q *queue.Queue) *Handler {
+	return &Handler{store: store, manager: manager, queue: q}
 }
 
 // Routes returns a chi router with all chat-related routes.
@@ -35,6 +39,7 @@ func (h *Handler) Routes() chi.Router {
 	r.Delete("/conversations/{id}", h.deleteConversation)
 
 	r.Post("/chat", h.chat)
+	r.Delete("/queue/{id}", h.cancelQueueItem)
 
 	return r
 }
@@ -43,6 +48,7 @@ type chatRequest struct {
 	ConversationID string   `json:"conversation_id"`
 	Content        string   `json:"content"`
 	Images         []string `json:"images,omitempty"`
+	ModelID        string   `json:"model_id,omitempty"`
 }
 
 func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
@@ -70,15 +76,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check that an engine is available before doing anything else
-	engine := h.manager.Engine()
-	if engine == nil {
-		writeErrorJSON(w, http.StatusServiceUnavailable, "no_model",
-			"No model is loaded. Select a model to get started.")
-		return
-	}
-
-	// Auto-create conversation if none specified
+	// Auto-create or load conversation
 	var conv *Conversation
 	var err error
 	if req.ConversationID == "" {
@@ -98,6 +96,50 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 			writeErrorJSON(w, http.StatusNotFound, "not_found",
 				"Conversation not found.")
 			return
+		}
+	}
+
+	// Resolve which model to use:
+	// 1. Explicit model_id in request (per-tab override)
+	// 2. Conversation's stored model_id
+	// 3. Default model (backward compat)
+	modelID := req.ModelID
+	if modelID == "" {
+		modelID = conv.ModelID
+	}
+
+	// Verify a model is available before queueing
+	if modelID != "" {
+		engine := h.manager.GetEngine(modelID)
+		if engine == nil {
+			if h.manager.IsSwitching() {
+				writeErrorJSON(w, http.StatusServiceUnavailable, "model_switching",
+					"Model is loading — please wait a moment and try again.")
+			} else {
+				writeErrorJSON(w, http.StatusServiceUnavailable, "model_not_loaded",
+					"The selected model is not loaded. Please load it first.")
+			}
+			return
+		}
+	} else {
+		engine := h.manager.Engine()
+		if engine == nil {
+			if h.manager.IsSwitching() {
+				writeErrorJSON(w, http.StatusServiceUnavailable, "model_switching",
+					"Switching models — please wait a moment and try again.")
+			} else {
+				writeErrorJSON(w, http.StatusServiceUnavailable, "no_model",
+					"No model is loaded. Select a model to get started.")
+			}
+			return
+		}
+	}
+
+	// Bind model to conversation if not already bound
+	if conv.ModelID == "" && modelID != "" {
+		conv.ModelID = modelID
+		if err := h.store.SetModelID(conv.ID, modelID); err != nil {
+			log.Printf("WARNING: failed to set model_id on conv %s: %v", conv.ID, err)
 		}
 	}
 
@@ -123,12 +165,11 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	engineMessages = append(engineMessages, conv.Messages...)
 
-	// Start streaming from engine
-	tokenCh, err := engine.ChatStream(r.Context(), engineMessages)
-	if err != nil {
-		writeErrorJSON(w, http.StatusServiceUnavailable, "engine_error", err.Error())
-		return
-	}
+	// Enqueue the inference job
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	item, position := h.queue.Enqueue(ctx, modelID, engineMessages)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -143,19 +184,99 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Send conversation ID as first event
-	fmt.Fprintf(w, "data: {\"conversation_id\":%q}\n\n", conv.ID)
+	// Send conversation ID and queue item ID as first event
+	firstEvent, _ := json.Marshal(map[string]interface{}{
+		"conversation_id": conv.ID,
+		"queue_id":        item.ID,
+		"position":        position,
+	})
+	fmt.Fprintf(w, "data: %s\n\n", firstEvent)
 	flusher.Flush()
 
-	// Stream tokens
+	// If the item is queued (not immediately processing), send position
+	// updates while waiting.
 	var fullResponse string
-	for token := range tokenCh {
-		fullResponse += token.Content
-		data, _ := json.Marshal(map[string]string{"content": token.Content})
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
+
+	if position > 0 {
+		// Send periodic position updates while waiting in the queue.
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+	waitLoop:
+		for {
+			select {
+			case <-ctx.Done():
+				// Client disconnected or request cancelled.
+				h.queue.Cancel(item.ID)
+				return
+			case token, ok := <-item.TokenCh:
+				if !ok {
+					// TokenCh closed — should not happen before DoneCh
+					break waitLoop
+				}
+				// First token arrived — we're now processing.
+				fullResponse += token.Content
+				data, _ := json.Marshal(map[string]string{"content": token.Content})
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+				break waitLoop
+			case err := <-item.ErrCh:
+				data, _ := json.Marshal(map[string]string{"error": err.Error()})
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+				fmt.Fprintf(w, "data: [DONE]\n\n")
+				flusher.Flush()
+				return
+			case <-item.DoneCh:
+				// Item was completed or cancelled while in queue.
+				fmt.Fprintf(w, "data: [DONE]\n\n")
+				flusher.Flush()
+				return
+			case <-ticker.C:
+				pos := h.queue.Position(item.ID)
+				if pos <= 0 {
+					// Position 0 = processing, -1 = not found (done)
+					continue
+				}
+				posData, _ := json.Marshal(map[string]interface{}{"position": pos})
+				fmt.Fprintf(w, "data: %s\n\n", posData)
+				flusher.Flush()
+			}
+		}
 	}
 
+	// Stream remaining tokens from the queue item.
+	for {
+		select {
+		case <-ctx.Done():
+			h.queue.Cancel(item.ID)
+			goto done
+		case token, ok := <-item.TokenCh:
+			if !ok {
+				goto done
+			}
+			fullResponse += token.Content
+			data, _ := json.Marshal(map[string]string{"content": token.Content})
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		case err := <-item.ErrCh:
+			data, _ := json.Marshal(map[string]string{"error": err.Error()})
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+			goto done
+		case <-item.DoneCh:
+			// Drain any remaining tokens in the channel.
+			for token := range item.TokenCh {
+				fullResponse += token.Content
+				data, _ := json.Marshal(map[string]string{"content": token.Content})
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+			}
+			goto done
+		}
+	}
+
+done:
 	// Signal stream end
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
@@ -167,6 +288,16 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 			log.Printf("ERROR: failed to persist assistant message for conv %s: %v", conv.ID, err)
 		}
 	}
+}
+
+func (h *Handler) cancelQueueItem(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Queue item ID is required.")
+		return
+	}
+	h.queue.Cancel(id)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) listConversations(w http.ResponseWriter, r *http.Request) {

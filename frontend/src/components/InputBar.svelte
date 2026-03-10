@@ -1,6 +1,6 @@
 <script lang="ts">
 	import ImagePreview from './ImagePreview.svelte';
-	import { sendMessage, getIsStreaming, cancelStream, addPendingImage, getPendingImages, getEngineStatus } from '$lib/stores.svelte';
+	import { sendMessage, getIsStreaming, cancelStream, cancelQueueItem, addPendingImage, getPendingImages, getEngineStatus, getQueuePosition } from '$lib/stores.svelte';
 
 	let inputText = $state('');
 	let fileInput: HTMLInputElement;
@@ -77,6 +77,18 @@
 		ondragleave={handleDragLeave}
 		ondrop={handleDrop}
 	>
+		{#if getQueuePosition() !== null && getQueuePosition()! > 0}
+			<div class="queue-indicator">
+				<span class="queue-text">Position {getQueuePosition()} in queue...</span>
+				<button class="queue-cancel-btn" onclick={cancelQueueItem} title="Cancel" aria-label="Cancel queue item">
+					Cancel
+				</button>
+			</div>
+		{:else if getQueuePosition() === 0}
+			<div class="queue-indicator">
+				<span class="queue-text">Processing...</span>
+			</div>
+		{/if}
 		<ImagePreview />
 		<div class="input-row">
 			{#if getEngineStatus()?.has_vision}
@@ -93,8 +105,7 @@
 				bind:value={inputText}
 				oninput={autoResize}
 				onkeydown={handleKeydown}
-				placeholder={getIsStreaming() ? 'Waiting for response...' : 'Message Fllint...'}
-				disabled={getIsStreaming()}
+				placeholder="Message Fllint..."
 				rows={1}
 			></textarea>
 			{#if getIsStreaming()}
@@ -234,5 +245,33 @@
 
 	.stop-btn:hover {
 		background: var(--text-primary);
+	}
+
+	.queue-indicator {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 6px 12px;
+		background: var(--bg-secondary);
+		border-radius: var(--radius-md, 8px);
+		margin-bottom: 4px;
+	}
+
+	.queue-text {
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
+	}
+
+	.queue-cancel-btn {
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
+		padding: 2px 8px;
+		border-radius: var(--radius-sm, 4px);
+		transition: all var(--transition);
+	}
+
+	.queue-cancel-btn:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
 	}
 </style>

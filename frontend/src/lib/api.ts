@@ -4,10 +4,20 @@ import type {
 	AppConfig,
 	SSEToken,
 	ImageUploadResult,
-	EngineStatus
+	EngineStatus,
+	MemoryInfo,
+	MemoryErrorInfo
 } from './types';
 
 const BASE = '/api';
+
+export class InsufficientMemoryError extends Error {
+	info: MemoryErrorInfo;
+	constructor(info: MemoryErrorInfo) {
+		super(info.model_name ? `Not enough memory to load ${info.model_name}` : 'Not enough memory');
+		this.info = info;
+	}
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(`${BASE}${path}`, {
@@ -48,6 +58,7 @@ export async function* streamChat(
 	content: string,
 	conversationId?: string,
 	images?: string[],
+	modelId?: string,
 	signal?: AbortSignal
 ): AsyncGenerator<SSEToken, void, undefined> {
 	const res = await fetch(`${BASE}/chat`, {
@@ -56,7 +67,8 @@ export async function* streamChat(
 		body: JSON.stringify({
 			content,
 			conversation_id: conversationId ?? '',
-			images: images?.length ? images : undefined
+			images: images?.length ? images : undefined,
+			model_id: modelId || undefined
 		}),
 		signal
 	});
@@ -99,14 +111,40 @@ export async function listModels(): Promise<ModelInfo[]> {
 }
 
 export async function setActiveModel(modelId: string): Promise<void> {
-	await request('/models/active', {
+	const res = await fetch(`${BASE}/models/active`, {
 		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ model_id: modelId })
 	});
+	if (!res.ok) {
+		const body = await res.json().catch(() => null);
+		if (body?.code === 'insufficient_memory') {
+			throw new InsufficientMemoryError({
+				model_name: body.model_name,
+				required_bytes: body.required_bytes,
+				available_bytes: body.available_bytes
+			});
+		}
+		throw new Error(body?.error ?? `Request failed (${res.status})`);
+	}
 }
 
 export async function refreshModels(): Promise<ModelInfo[]> {
 	return request('/models/refresh', { method: 'POST' });
+}
+
+export async function loadModel(modelId: string): Promise<void> {
+	await request('/models/load', {
+		method: 'POST',
+		body: JSON.stringify({ model_id: modelId })
+	});
+}
+
+export async function unloadModel(modelId: string): Promise<void> {
+	await request('/models/unload', {
+		method: 'POST',
+		body: JSON.stringify({ model_id: modelId })
+	});
 }
 
 // --- Status ---
@@ -171,6 +209,18 @@ export async function openFolder(folder: 'models' | 'data'): Promise<void> {
 		method: 'POST',
 		body: JSON.stringify({ folder })
 	});
+}
+
+// --- Memory ---
+
+export async function fetchMemory(): Promise<MemoryInfo> {
+	return request('/memory');
+}
+
+// --- Queue ---
+
+export async function cancelQueueItem(id: string): Promise<void> {
+	await fetch(`${BASE}/queue/${id}`, { method: 'DELETE' });
 }
 
 // --- Bulk Operations ---

@@ -72,15 +72,21 @@ type LlamaCppEngine struct {
 	ctxSize          int
 	nGPULayers       int
 	flashAttn        string // "auto", "on", "off"
+	mmap             bool
 
 	// Inference parameters (guarded by mu, can be updated live)
 	inferenceParams InferenceParams
 
 	// Runtime state (guarded by mu)
-	state    EngineState
+	state        EngineState
+	loadProgress float64 // 0.0–1.0, updated during model loading from /health
 	stateErr error
 	cmd      *exec.Cmd
 	cancel   context.CancelFunc
+
+	// processDone is closed when the supervise goroutine exits (process fully reaped).
+	// Stop() waits on this instead of calling cmd.Wait() a second time.
+	processDone chan struct{}
 
 	httpClient *http.Client
 }
@@ -94,6 +100,7 @@ type LlamaCppConfig struct {
 	CtxSize          int
 	NGPULayers       int
 	FlashAttn        string // "auto", "on", "off"
+	Mmap             bool   // enable memory-mapped I/O for SSD-backed loading
 	DataDir          string // For resolving image URLs to disk paths
 	InferenceParams  InferenceParams
 }
@@ -142,6 +149,7 @@ func NewLlamaCppEngine(cfg LlamaCppConfig) (*LlamaCppEngine, error) {
 		ctxSize:          cfg.CtxSize,
 		nGPULayers:       cfg.NGPULayers,
 		flashAttn:        cfg.FlashAttn,
+		mmap:             cfg.Mmap,
 		inferenceParams:  cfg.InferenceParams,
 		state:            EngineStateIdle,
 		httpClient: &http.Client{
@@ -173,11 +181,16 @@ func (e *LlamaCppEngine) Start() error {
 	if e.flashAttn != "" && e.flashAttn != "off" {
 		args = append(args, "--flash-attn", e.flashAttn)
 	}
+	if e.mmap {
+		args = append(args, "--mmap")
+	}
 	if e.mmprojPath != "" {
 		args = append(args, "--mmproj", e.mmprojPath)
 	}
 
-	cmd := exec.CommandContext(ctx, e.serverBinaryPath, args...)
+	// Use exec.Command (NOT CommandContext) — we handle process lifecycle
+	// manually in supervise/Stop to avoid Go's internal double-Wait issues.
+	cmd := exec.Command(e.serverBinaryPath, args...)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 
@@ -210,18 +223,25 @@ func (e *LlamaCppEngine) Start() error {
 		return result
 	}
 
+	processDone := make(chan struct{})
+
 	e.mu.Lock()
 	e.cmd = cmd
 	e.cancel = cancel
+	e.processDone = processDone
 	e.mu.Unlock()
 
-	go e.supervise(ctx, cmd)
+	go e.supervise(ctx, cmd, processDone)
 
 	return nil
 }
 
 // supervise polls health until ready, then monitors for crashes.
-func (e *LlamaCppEngine) supervise(ctx context.Context, cmd *exec.Cmd) {
+// It owns the single cmd.Wait() call and closes processDone when the
+// process has been fully reaped.
+func (e *LlamaCppEngine) supervise(ctx context.Context, cmd *exec.Cmd, processDone chan struct{}) {
+	defer close(processDone)
+
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", e.port)
 
 	const (
@@ -236,6 +256,10 @@ func (e *LlamaCppEngine) supervise(ctx context.Context, cmd *exec.Cmd) {
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
+			// Stop() was called during startup — kill and reap the process.
+			log.Printf("[supervise] context cancelled during health poll, killing process")
+			cmd.Process.Kill()
+			cmd.Wait()
 			return
 		default:
 		}
@@ -243,11 +267,20 @@ func (e *LlamaCppEngine) supervise(ctx context.Context, cmd *exec.Cmd) {
 		resp, err := healthClient.Get(healthURL)
 		if err == nil {
 			var body struct {
-				Status string `json:"status"`
+				Status   string  `json:"status"`
+				Progress float64 `json:"progress"`
 			}
 			json.NewDecoder(resp.Body).Decode(&body)
 			resp.Body.Close()
+			if body.Progress > 0 {
+				e.mu.Lock()
+				e.loadProgress = body.Progress
+				e.mu.Unlock()
+			}
 			if body.Status == "ok" {
+				e.mu.Lock()
+				e.loadProgress = 1.0
+				e.mu.Unlock()
 				healthy = true
 				break
 			}
@@ -263,7 +296,8 @@ func (e *LlamaCppEngine) supervise(ctx context.Context, cmd *exec.Cmd) {
 				"It may need more memory than available. Try a smaller model",
 		)
 		e.mu.Unlock()
-		e.killProcess()
+		cmd.Process.Kill()
+		cmd.Wait()
 		return
 	}
 
@@ -273,12 +307,22 @@ func (e *LlamaCppEngine) supervise(ctx context.Context, cmd *exec.Cmd) {
 	e.mu.Unlock()
 	log.Printf("llama-server ready on port %d with model %s", e.port, e.modelName)
 
-	// Monitor for process exit (crash detection)
+	// Monitor for process exit (crash detection).
+	// This goroutine owns the only cmd.Wait() call.
 	waitCh := make(chan error, 1)
 	go func() { waitCh <- cmd.Wait() }()
 
 	select {
 	case <-ctx.Done():
+		// Stop() was called — kill the process and wait for it to exit.
+		log.Printf("[supervise] context cancelled, killing process")
+		cmd.Process.Signal(os.Interrupt)
+		select {
+		case <-waitCh:
+		case <-time.After(5 * time.Second):
+			cmd.Process.Kill()
+			<-waitCh
+		}
 		return
 	case err := <-waitCh:
 		e.mu.Lock()
@@ -299,6 +343,8 @@ func (e *LlamaCppEngine) supervise(ctx context.Context, cmd *exec.Cmd) {
 }
 
 // Stop gracefully shuts down the llama-server process.
+// It cancels the context (which tells supervise to kill & reap the process)
+// and waits for the supervise goroutine to finish via processDone.
 func (e *LlamaCppEngine) Stop() {
 	e.mu.Lock()
 	if e.state == EngineStateIdle || e.state == EngineStateStopping {
@@ -307,28 +353,17 @@ func (e *LlamaCppEngine) Stop() {
 	}
 	e.state = EngineStateStopping
 	cancel := e.cancel
-	cmd := e.cmd
+	processDone := e.processDone
 	e.mu.Unlock()
 
+	// Signal the supervise goroutine to kill the process.
 	if cancel != nil {
 		cancel()
 	}
 
-	if cmd != nil && cmd.Process != nil {
-		cmd.Process.Signal(os.Interrupt)
-
-		done := make(chan struct{})
-		go func() {
-			cmd.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			cmd.Process.Kill()
-			<-done
-		}
+	// Wait for supervise to finish (it handles kill + cmd.Wait).
+	if processDone != nil {
+		<-processDone
 	}
 
 	e.mu.Lock()
@@ -336,18 +371,12 @@ func (e *LlamaCppEngine) Stop() {
 	e.stateErr = nil
 	e.cmd = nil
 	e.cancel = nil
+	e.processDone = nil
 	e.mu.Unlock()
 }
 
-func (e *LlamaCppEngine) killProcess() {
-	e.mu.RLock()
-	cmd := e.cmd
-	e.mu.RUnlock()
-	if cmd != nil && cmd.Process != nil {
-		cmd.Process.Kill()
-		cmd.Wait() // Reap the child process to avoid zombies
-	}
-}
+// killProcess is no longer needed — supervise owns all process lifecycle.
+// Kept as a no-op for safety.
 
 // ChatStream implements the Engine interface. It sends messages to the
 // llama-server /v1/chat/completions endpoint and streams tokens back.
@@ -513,6 +542,13 @@ func (e *LlamaCppEngine) State() (EngineState, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.state, e.stateErr
+}
+
+// LoadProgress returns the model loading progress (0.0–1.0).
+func (e *LlamaCppEngine) LoadProgress() float64 {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.loadProgress
 }
 
 // --- OpenAI-compatible request types ---

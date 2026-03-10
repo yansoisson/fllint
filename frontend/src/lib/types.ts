@@ -7,6 +7,7 @@ export interface ChatMessage {
 export interface Conversation {
 	id: string;
 	title: string;
+	model_id?: string;
 	messages: ChatMessage[];
 	created_at: string;
 	updated_at: string;
@@ -19,6 +20,7 @@ export interface ModelInfo {
 	file_path?: string;
 	size?: number;
 	active: boolean;
+	loaded: boolean;
 	vision: boolean;
 }
 
@@ -39,26 +41,65 @@ export interface AppConfig {
 	ctx_size: number;
 	n_gpu_layers: number;
 	flash_attn: 'auto' | 'on' | 'off';
+	pinned_models?: string[];
 }
 
 export interface SSEToken {
 	content?: string;
 	conversation_id?: string;
+	queue_id?: string;
+	position?: number;
 	error?: string;
 	code?: string;
 }
 
+export interface EngineStatusInfo {
+	model_id: string;
+	model_name: string;
+	engine_state: 'idle' | 'starting' | 'ready' | 'error' | 'stopping';
+	error?: string;
+	has_vision: boolean;
+	load_progress?: number;
+}
+
 export interface EngineStatus {
+	engines: EngineStatusInfo[];
+	default_model_id?: string;
+	has_binary: boolean;
+	has_models: boolean;
+	// Backward-compat fields from the default engine
 	engine_state: 'idle' | 'starting' | 'ready' | 'error' | 'stopping';
 	error?: string;
 	model_name?: string;
-	has_binary: boolean;
-	has_models: boolean;
 	has_vision: boolean;
+	load_progress?: number;
 }
 
 export interface ImageUploadResult {
 	id: string;
 	filename: string;
 	url: string;
+}
+
+export interface MemoryErrorInfo {
+	model_name: string;
+	required_bytes: number;
+	available_bytes: number;
+}
+
+export interface MemoryInfo {
+	system: {
+		total_ram: number;
+		available_ram: number;
+		total_vram: number;
+		available_vram: number;
+		is_unified: boolean;
+	} | null;
+	used_by_models: number;
+	models: {
+		model_id: string;
+		model_name: string;
+		estimated_ram: number;
+		loaded: boolean;
+	}[];
 }

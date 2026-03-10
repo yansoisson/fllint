@@ -19,6 +19,9 @@ type Config struct {
 	Theme   string `json:"theme"`    // "light", "dark", "system"
 	ProMode bool   `json:"pro_mode"`
 
+	// Model Selector
+	PinnedModels []string `json:"pinned_models"` // model IDs shown in main selector (ordered)
+
 	// Chat Behavior
 	CustomInstructions string `json:"custom_instructions"`
 	SystemPrompt       string `json:"system_prompt"` // empty = use default

@@ -27,6 +27,7 @@ type ModelInfo struct {
 	MmprojPath string `json:"mmproj_path,omitempty"` // path to vision projector file
 	Size       int64  `json:"size,omitempty"`
 	Active     bool   `json:"active"`
+	Loaded     bool   `json:"loaded"` // true if engine is currently running
 	Vision     bool   `json:"vision"` // true if mmproj file is available
 }
 

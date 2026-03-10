@@ -93,6 +93,7 @@ func Run(frontendFS fs.FS) {
 	shutdown := func() {
 		shutdownOnce.Do(func() {
 			log.Println("Shutting down...")
+			srv.StopQueue()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			httpServer.Shutdown(shutdownCtx)
