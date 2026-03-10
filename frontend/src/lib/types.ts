@@ -1,6 +1,8 @@
 export interface ChatMessage {
 	role: 'user' | 'assistant' | 'system';
 	content: string;
+	reasoning?: string;
+	thinking_duration?: number;
 	images?: string[];
 }
 
@@ -46,6 +48,8 @@ export interface AppConfig {
 
 export interface SSEToken {
 	content?: string;
+	reasoning?: string;
+	thinking_duration?: number;
 	conversation_id?: string;
 	queue_id?: string;
 	position?: number;

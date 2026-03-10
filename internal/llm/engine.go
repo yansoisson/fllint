@@ -7,14 +7,17 @@ import (
 
 // ChatMessage represents a single message in a conversation.
 type ChatMessage struct {
-	Role    string   `json:"role"` // "user", "assistant", "system"
-	Content string   `json:"content"`
-	Images  []string `json:"images,omitempty"` // URLs like "/api/uploads/uuid.png"
+	Role             string   `json:"role"` // "user", "assistant", "system"
+	Content          string   `json:"content"`
+	Reasoning        string   `json:"reasoning,omitempty"`
+	ThinkingDuration *int     `json:"thinking_duration,omitempty"`
+	Images           []string `json:"images,omitempty"` // URLs like "/api/uploads/uuid.png"
 }
 
 // Token represents a single streamed token from the LLM.
 type Token struct {
-	Content string `json:"content"`
+	Content   string `json:"content,omitempty"`
+	Reasoning string `json:"reasoning,omitempty"`
 }
 
 // Engine defines the interface for LLM inference backends.

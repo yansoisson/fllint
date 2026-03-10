@@ -1,8 +1,9 @@
 <script lang="ts">
 	import type { ChatMessage } from '$lib/types';
 	import { renderMarkdown } from '$lib/markdown';
+	import ThinkingBlock from './ThinkingBlock.svelte';
 
-	let { message }: { message: ChatMessage } = $props();
+	let { message, isStreamingMessage = false }: { message: ChatMessage; isStreamingMessage?: boolean } = $props();
 </script>
 
 <div class="message {message.role}">
@@ -19,7 +20,12 @@
 			<div class="content">{message.content}</div>
 		{/if}
 	{:else}
-		<div class="content prose">{@html renderMarkdown(message.content)}</div>
+		{#if message.reasoning}
+			<ThinkingBlock reasoning={message.reasoning} duration={message.thinking_duration ?? null} isStreaming={isStreamingMessage} />
+		{/if}
+		{#if message.content}
+			<div class="content prose">{@html renderMarkdown(message.content)}</div>
+		{/if}
 	{/if}
 </div>
 

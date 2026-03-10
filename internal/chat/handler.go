@@ -193,9 +193,25 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "data: %s\n\n", firstEvent)
 	flusher.Flush()
 
+	// marshalToken builds the SSE JSON for a token, including reasoning if present.
+	marshalToken := func(token llm.Token) []byte {
+		event := map[string]string{}
+		if token.Content != "" {
+			event["content"] = token.Content
+		}
+		if token.Reasoning != "" {
+			event["reasoning"] = token.Reasoning
+		}
+		data, _ := json.Marshal(event)
+		return data
+	}
+
 	// If the item is queued (not immediately processing), send position
 	// updates while waiting.
 	var fullResponse string
+	var fullReasoning string
+	var thinkingStart time.Time
+	var thinkingDuration *int
 
 	if position > 0 {
 		// Send periodic position updates while waiting in the queue.
@@ -215,9 +231,16 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 					break waitLoop
 				}
 				// First token arrived — we're now processing.
+				if token.Reasoning != "" && thinkingStart.IsZero() {
+					thinkingStart = time.Now()
+				}
+				if token.Content != "" && !thinkingStart.IsZero() && thinkingDuration == nil {
+					d := int(time.Since(thinkingStart).Seconds())
+					thinkingDuration = &d
+				}
 				fullResponse += token.Content
-				data, _ := json.Marshal(map[string]string{"content": token.Content})
-				fmt.Fprintf(w, "data: %s\n\n", data)
+				fullReasoning += token.Reasoning
+				fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
 				flusher.Flush()
 				break waitLoop
 			case err := <-item.ErrCh:
@@ -255,9 +278,16 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				goto done
 			}
+			if token.Reasoning != "" && thinkingStart.IsZero() {
+				thinkingStart = time.Now()
+			}
+			if token.Content != "" && !thinkingStart.IsZero() && thinkingDuration == nil {
+				d := int(time.Since(thinkingStart).Seconds())
+				thinkingDuration = &d
+			}
 			fullResponse += token.Content
-			data, _ := json.Marshal(map[string]string{"content": token.Content})
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			fullReasoning += token.Reasoning
+			fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
 			flusher.Flush()
 		case err := <-item.ErrCh:
 			data, _ := json.Marshal(map[string]string{"error": err.Error()})
@@ -267,9 +297,16 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		case <-item.DoneCh:
 			// Drain any remaining tokens in the channel.
 			for token := range item.TokenCh {
+				if token.Reasoning != "" && thinkingStart.IsZero() {
+					thinkingStart = time.Now()
+				}
+				if token.Content != "" && !thinkingStart.IsZero() && thinkingDuration == nil {
+					d := int(time.Since(thinkingStart).Seconds())
+					thinkingDuration = &d
+				}
 				fullResponse += token.Content
-				data, _ := json.Marshal(map[string]string{"content": token.Content})
-				fmt.Fprintf(w, "data: %s\n\n", data)
+				fullReasoning += token.Reasoning
+				fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
 				flusher.Flush()
 			}
 			goto done
@@ -277,13 +314,25 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 done:
+	// Send thinking duration if we tracked it
+	if thinkingDuration != nil {
+		data, _ := json.Marshal(map[string]interface{}{"thinking_duration": *thinkingDuration})
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
 	// Signal stream end
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
 
 	// Persist assistant response
-	if fullResponse != "" {
-		assistantMsg := llm.ChatMessage{Role: "assistant", Content: fullResponse}
+	if fullResponse != "" || fullReasoning != "" {
+		assistantMsg := llm.ChatMessage{
+			Role:             "assistant",
+			Content:          fullResponse,
+			Reasoning:        fullReasoning,
+			ThinkingDuration: thinkingDuration,
+		}
 		if _, err := h.store.AppendMessage(conv.ID, assistantMsg); err != nil {
 			log.Printf("ERROR: failed to persist assistant message for conv %s: %v", conv.ID, err)
 		}

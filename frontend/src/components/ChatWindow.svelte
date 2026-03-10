@@ -4,6 +4,8 @@
 		getMessages,
 		getIsStreaming,
 		getStreamingContent,
+		getStreamingReasoning,
+		getThinkingDuration,
 		getEngineStatus,
 		getChatError,
 		clearChatError,
@@ -16,6 +18,7 @@
 	$effect(() => {
 		const _ = getMessages();
 		const __ = getStreamingContent();
+		const ___ = getStreamingReasoning();
 		if (chatContainer) {
 			requestAnimationFrame(() => {
 				chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -29,8 +32,13 @@
 		<MessageBubble {message} />
 	{/each}
 
-	{#if getIsStreaming() && getStreamingContent()}
-		<MessageBubble message={{ role: 'assistant', content: getStreamingContent() }} />
+	{#if getIsStreaming() && (getStreamingContent() || getStreamingReasoning())}
+		<MessageBubble message={{
+			role: 'assistant',
+			content: getStreamingContent(),
+			reasoning: getStreamingReasoning() || undefined,
+			thinking_duration: getThinkingDuration() ?? undefined
+		}} isStreamingMessage={true} />
 	{/if}
 
 	{#if getChatError()}

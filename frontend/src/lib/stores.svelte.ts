@@ -11,6 +11,8 @@ let messages = $state<ChatMessage[]>([]);
 // --- Streaming ---
 let isStreaming = $state(false);
 let streamingContent = $state('');
+let streamingReasoning = $state('');
+let thinkingDuration = $state<number | null>(null);
 let streamAbortController: AbortController | null = null;
 
 // --- Queue ---
@@ -71,6 +73,12 @@ export function getIsStreaming() {
 }
 export function getStreamingContent() {
 	return streamingContent;
+}
+export function getStreamingReasoning() {
+	return streamingReasoning;
+}
+export function getThinkingDuration() {
+	return thinkingDuration;
 }
 export function getModels() {
 	return models;
@@ -474,6 +482,8 @@ export async function sendMessage(content: string) {
 
 	isStreaming = true;
 	streamingContent = '';
+	streamingReasoning = '';
+	thinkingDuration = null;
 	streamAbortController = new AbortController();
 	queuePosition = null;
 	queueItemId = null;
@@ -499,6 +509,12 @@ export async function sendMessage(content: string) {
 			if (token.position !== undefined) {
 				queuePosition = token.position;
 			}
+			if (token.reasoning) {
+				streamingReasoning += token.reasoning;
+			}
+			if (token.thinking_duration !== undefined) {
+				thinkingDuration = token.thinking_duration;
+			}
 			if (token.content) {
 				// Once we receive content, we're no longer queued
 				queuePosition = null;
@@ -508,15 +524,29 @@ export async function sendMessage(content: string) {
 				chatError = token.error;
 			}
 		}
-		if (streamingContent) {
-			messages = [...messages, { role: 'assistant', content: streamingContent }];
+		if (streamingContent || streamingReasoning) {
+			const msg: ChatMessage = { role: 'assistant', content: streamingContent };
+			if (streamingReasoning) {
+				msg.reasoning = streamingReasoning;
+			}
+			if (thinkingDuration !== null) {
+				msg.thinking_duration = thinkingDuration;
+			}
+			messages = [...messages, msg];
 		}
 		await loadConversations();
 	} catch (err) {
 		if (err instanceof DOMException && err.name === 'AbortError') {
 			// User cancelled — keep partial response if any
-			if (streamingContent) {
-				messages = [...messages, { role: 'assistant', content: streamingContent }];
+			if (streamingContent || streamingReasoning) {
+				const msg: ChatMessage = { role: 'assistant', content: streamingContent };
+				if (streamingReasoning) {
+					msg.reasoning = streamingReasoning;
+				}
+				if (thinkingDuration !== null) {
+					msg.thinking_duration = thinkingDuration;
+				}
+				messages = [...messages, msg];
 			}
 		} else {
 			const errorMessage = err instanceof Error ? err.message : 'Failed to get response.';
@@ -525,6 +555,8 @@ export async function sendMessage(content: string) {
 	} finally {
 		isStreaming = false;
 		streamingContent = '';
+		streamingReasoning = '';
+		thinkingDuration = null;
 		streamAbortController = null;
 		queuePosition = null;
 		queueItemId = null;

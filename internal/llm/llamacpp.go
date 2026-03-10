@@ -496,7 +496,8 @@ func (e *LlamaCppEngine) parseSSEStream(ctx context.Context, body io.ReadCloser,
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
+					Content          string `json:"content"`
+					ReasoningContent string `json:"reasoning_content"`
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
@@ -511,14 +512,15 @@ func (e *LlamaCppEngine) parseSSEStream(ctx context.Context, body io.ReadCloser,
 		}
 
 		content := chunk.Choices[0].Delta.Content
-		if content == "" {
+		reasoning := chunk.Choices[0].Delta.ReasoningContent
+		if content == "" && reasoning == "" {
 			continue
 		}
 
 		select {
 		case <-ctx.Done():
 			return
-		case ch <- Token{Content: content}:
+		case ch <- Token{Content: content, Reasoning: reasoning}:
 		}
 	}
 
