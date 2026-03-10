@@ -9,7 +9,8 @@
 		getEngineStatus,
 		getChatError,
 		clearChatError,
-		refreshModels
+		refreshModels,
+		openSettingsToTab
 	} from '$lib/stores.svelte';
 
 	let chatContainer: HTMLDivElement;
@@ -74,12 +75,15 @@
 				</p>
 				<button class="refresh-btn" onclick={refreshModels}>Refresh</button>
 			{:else if !getEngineStatus()?.has_models}
-				<h2>Almost there</h2>
-				<p>
-					llama-server is ready, but no models found.
-					Place a .gguf model file in the <code>models/</code> folder.
+				<h2>Download a model to get started</h2>
+				<p>Your setup is ready — just pick a model to download.</p>
+				<button class="refresh-btn" onclick={() => openSettingsToTab('models')}>
+					Browse Models
+				</button>
+				<p class="manual-hint">
+					Or place a .gguf file in the <code>models/</code> folder manually.
+					<button class="link-btn" onclick={refreshModels}>Refresh</button>
 				</p>
-				<button class="refresh-btn" onclick={refreshModels}>Refresh</button>
 			{:else if getEngineStatus()?.engine_state === 'starting'}
 				<h2>Loading model...</h2>
 				<p>This can take a minute for larger models.</p>
@@ -240,5 +244,23 @@
 
 	.dismiss-btn:hover {
 		background: var(--error-bg-hover);
+	}
+
+	.manual-hint {
+		font-size: 0.85em;
+		color: var(--text-muted);
+		margin-top: 16px;
+	}
+
+	.link-btn {
+		color: var(--accent);
+		font-size: inherit;
+		text-decoration: underline;
+		cursor: pointer;
+		padding: 0;
+	}
+
+	.link-btn:hover {
+		color: var(--accent-hover);
 	}
 </style>

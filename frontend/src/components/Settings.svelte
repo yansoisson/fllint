@@ -11,10 +11,16 @@
 		deleteAllConversations,
 		showNotification,
 		getConversations,
-		getEngineStatus
+		getEngineStatus,
+		getDownloadRegistry,
+		getActiveDownloadsState,
+		startModelDownload,
+		cancelModelDownload,
+		loadDownloadRegistry,
+		getSettingsInitialTab
 	} from '$lib/stores.svelte';
 	import * as api from '$lib/api';
-	import type { AppConfig, ModelInfo } from '$lib/types';
+	import type { AppConfig, ModelInfo, DownloadStatus } from '$lib/types';
 
 	type SettingsTab = 'general' | 'models' | 'advanced';
 
@@ -36,6 +42,10 @@
 	// Loaded models derived from model list
 	let loadedModels = $derived(getModels().filter((m) => m.loaded));
 	let status = $derived(getEngineStatus());
+
+	// Download state
+	let registryModels = $derived(getDownloadRegistry());
+	let downloads = $derived(getActiveDownloadsState());
 
 	function isModelStarting(modelId: string): boolean {
 		if (!status?.engines) return false;
@@ -136,6 +146,7 @@
 
 	$effect(() => {
 		if (getSettingsOpen()) {
+			activeTab = getSettingsInitialTab();
 			loadConfig();
 		} else {
 			config = null;
@@ -159,7 +170,7 @@
 		error = null;
 		try {
 			config = await api.getConfig();
-			await Promise.all([loadModels(), loadStatus()]);
+			await Promise.all([loadModels(), loadStatus(), loadDownloadRegistry()]);
 			try {
 				defaultPrompt = await api.getDefaultSystemPrompt();
 			} catch {
@@ -222,6 +233,25 @@
 			case 'pro': return 'Pro';
 			default: return 'Custom';
 		}
+	}
+
+	function findActiveDownload(registryId: string): DownloadStatus | undefined {
+		return downloads.find(
+			(d) => d.registry_id === registryId && d.state !== 'complete' && d.state !== 'cancelled'
+		);
+	}
+
+	function progressPercent(dl: DownloadStatus): number {
+		if (!dl.total_bytes) return 0;
+		return Math.round((dl.done_bytes / dl.total_bytes) * 100);
+	}
+
+	async function handleStartDownload(registryId: string) {
+		await startModelDownload(registryId);
+	}
+
+	async function handleCancelDownload(downloadId: string) {
+		await cancelModelDownload(downloadId);
 	}
 
 	function isTierModel(model: ModelInfo): boolean {
@@ -510,6 +540,56 @@
 												>
 													{unloadingModelId === model.id ? 'Unloading...' : 'Unload'}
 												</button>
+											</div>
+										</div>
+									{/each}
+								</div>
+							</section>
+						{/if}
+
+						<!-- ==================== GET MODELS ==================== -->
+						{#if registryModels.length > 0}
+							<section class="section">
+								<h4 class="section-title">Get Models</h4>
+								<p class="field-desc">Download official models directly. Files are saved to your models folder.</p>
+
+								<div class="download-list">
+									{#each registryModels as model (model.id)}
+										{@const dl = findActiveDownload(model.id)}
+										<div class="download-card">
+											<div class="model-info">
+												<div class="model-name-row">
+													<span class="model-name">{model.display_name}</span>
+													<span class="badge tier-badge tier-{model.tier}">{tierLabel(model.tier)}</span>
+												</div>
+												<div class="model-meta">
+													<span>{formatSize(model.size + (model.mmproj_size ?? 0))}</span>
+												</div>
+											</div>
+											<div class="download-action">
+												{#if model.downloaded}
+													<span class="download-done" title="Downloaded">
+														<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+															<polyline points="20 6 9 17 4 12" />
+														</svg>
+													</span>
+												{:else if dl?.state === 'downloading'}
+													<div class="download-progress-row">
+														<div class="progress-bar">
+															<div class="progress-fill" style="width: {progressPercent(dl)}%"></div>
+														</div>
+														<span class="progress-text">{progressPercent(dl)}%</span>
+														<button class="small-btn danger-text" onclick={() => handleCancelDownload(dl.id)}>Cancel</button>
+													</div>
+												{:else if dl?.state === 'queued'}
+													<span class="queue-text">Waiting...</span>
+													<button class="small-btn danger-text" onclick={() => handleCancelDownload(dl.id)}>Cancel</button>
+												{:else if dl?.state === 'error'}
+													<span class="error-text-small" title={dl.error}>{dl.error}</span>
+													<button class="small-btn" onclick={() => handleStartDownload(model.id)}>Retry</button>
+												{:else}
+													<button class="secondary-btn download-btn" onclick={() => handleStartDownload(model.id)}>Download</button>
+												{/if}
 											</div>
 										</div>
 									{/each}
@@ -1510,5 +1590,90 @@
 		margin-top: 16px;
 		padding-top: 16px;
 		border-top: 1px solid var(--danger-border, #fecaca);
+	}
+
+	/* Download cards */
+	.download-list {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.download-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 10px 12px;
+		border-radius: var(--radius);
+		transition: background var(--transition);
+	}
+
+	.download-card:hover {
+		background: var(--bg-hover);
+	}
+
+	.download-action {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-shrink: 0;
+		margin-left: 12px;
+	}
+
+	.download-progress-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.progress-bar {
+		width: 80px;
+		height: 6px;
+		background: var(--border);
+		border-radius: 3px;
+		overflow: hidden;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: var(--accent);
+		border-radius: 3px;
+		transition: width 0.3s ease;
+	}
+
+	.progress-text {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		font-variant-numeric: tabular-nums;
+		min-width: 32px;
+	}
+
+	.download-done {
+		color: #059669;
+		display: flex;
+		align-items: center;
+	}
+
+	:global([data-theme='dark']) .download-done {
+		color: #34d399;
+	}
+
+	.queue-text {
+		font-size: 0.8rem;
+		color: var(--text-muted);
+	}
+
+	.error-text-small {
+		font-size: 0.75rem;
+		color: var(--danger, #dc2626);
+		max-width: 150px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.download-btn {
+		padding: 5px 12px;
+		font-size: 0.8rem;
 	}
 </style>

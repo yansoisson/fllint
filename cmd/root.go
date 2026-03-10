@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fllint/fllint/internal/config"
+	"github.com/fllint/fllint/internal/download"
 	"github.com/fllint/fllint/internal/launcher"
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/paths"
@@ -48,8 +49,11 @@ func Run(frontendFS fs.FS) {
 	// Initialize LLM manager with real model discovery
 	llmManager := llm.NewManager(serverBinaryPath, cfg.ModelsDir, cfg.DataDir)
 
+	// Initialize download manager for in-app model downloads
+	downloadMgr := download.NewManager(cfg.ModelsDir, llmManager)
+
 	// Create HTTP server
-	srv, err := server.New(cfg, frontendFS, llmManager)
+	srv, err := server.New(cfg, frontendFS, llmManager, downloadMgr)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
@@ -96,6 +100,7 @@ func Run(frontendFS fs.FS) {
 		shutdownOnce.Do(func() {
 			log.Println("Shutting down...")
 			srv.StopQueue()
+			downloadMgr.StopAll()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			httpServer.Shutdown(shutdownCtx)

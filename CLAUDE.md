@@ -45,6 +45,7 @@ Single-binary local AI chat app. Go backend serves a SvelteKit SPA embedded via 
 - **`internal/server/`**: chi router, middleware stack, SPA fallback serving. No `middleware.Timeout` — it wraps ResponseWriter and breaks SSE Flusher.
 - **`internal/config/`**: JSON config with env var overrides (`FLLINT_PORT`, `FLLINT_DATA_DIR`, `FLLINT_MODELS_DIR`)
 - **`internal/image/`**: Multipart upload (10MB limit), UUID filenames, serves via `/api/uploads/*`
+- **`internal/download/`**: In-app model download manager. `Manager` handles a single-worker download queue with `.partial` file resume, progress tracking via `atomic.Int64`, URL allowlist (huggingface.co only), and disk space checking. `registry.go` defines official downloadable models. Downloads to `{modelsDir}/{Tier}/` subdirectories.
 - **`internal/launcher/`**: `fyne.io/systray` (must run on main goroutine), platform-specific browser open
 
 ### Frontend (SvelteKit 2 + Svelte 5)
@@ -72,6 +73,10 @@ All under `/api/`:
 - `GET /status` — engine status (`{engine_state, error, model_name, has_binary, has_models}`)
 - `POST /image/upload`, `GET /uploads/*` — image handling
 - `GET/PUT /config` — app configuration
+- `GET /downloads/registry` — list downloadable models with `downloaded` status
+- `POST /downloads/start` — start a model download (`{registry_id}`)
+- `GET /downloads/active` — list active/queued downloads with progress
+- `POST /downloads/cancel` — cancel a download (`{download_id}`)
 
 ## LLM Backend (llama.cpp)
 

@@ -91,6 +91,25 @@ export interface MemoryErrorInfo {
 	available_bytes: number;
 }
 
+export interface RegistryModel {
+	id: string;
+	display_name: string;
+	tier: 'lite' | 'standard' | 'pro';
+	size: number;
+	downloaded: boolean;
+	mmproj_size?: number;
+}
+
+export interface DownloadStatus {
+	id: string;
+	registry_id: string;
+	display_name: string;
+	total_bytes: number;
+	done_bytes: number;
+	state: 'queued' | 'downloading' | 'complete' | 'cancelled' | 'error';
+	error?: string;
+}
+
 export interface MemoryInfo {
 	system: {
 		total_ram: number;

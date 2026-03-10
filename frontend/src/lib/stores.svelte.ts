@@ -1,4 +1,4 @@
-import type { Conversation, ChatMessage, ModelInfo, EngineStatus, MemoryInfo, MemoryErrorInfo } from './types';
+import type { Conversation, ChatMessage, ModelInfo, EngineStatus, MemoryInfo, MemoryErrorInfo, RegistryModel, DownloadStatus } from './types';
 import { goto } from '$app/navigation';
 import * as api from './api';
 import { InsufficientMemoryError } from './api';
@@ -57,6 +57,15 @@ let chatError = $state<string | null>(null);
 let initError = $state<string | null>(null);
 let notification = $state<{ message: string; type: 'error' | 'info' } | null>(null);
 let notificationTimeout: ReturnType<typeof setTimeout> | null = null;
+
+// --- Downloads ---
+let downloadRegistry = $state<RegistryModel[]>([]);
+let activeDownloads = $state<DownloadStatus[]>([]);
+let downloadPollTimer: ReturnType<typeof setInterval> | null = null;
+
+// --- Settings Navigation ---
+type SettingsTab = 'general' | 'models' | 'advanced';
+let settingsInitialTab = $state<SettingsTab>('general');
 
 // --- Cross-tab sync ---
 let configChannel: BroadcastChannel | null = null;
@@ -141,6 +150,18 @@ export function getProMode() {
 export function getPinnedModelIds() {
 	return pinnedModelIds;
 }
+export function getDownloadRegistry() {
+	return downloadRegistry;
+}
+export function getActiveDownloadsState() {
+	return activeDownloads;
+}
+export function isDownloadActive(): boolean {
+	return activeDownloads.some((d) => d.state === 'downloading' || d.state === 'queued');
+}
+export function getSettingsInitialTab() {
+	return settingsInitialTab;
+}
 
 /** Check if the effective model for this tab is currently loading (not ready for inference). */
 export function isEffectiveModelLoading(): boolean {
@@ -174,6 +195,11 @@ export function openSettings() {
 
 export function closeSettings() {
 	settingsOpen = false;
+}
+
+export function openSettingsToTab(tab: SettingsTab) {
+	settingsInitialTab = tab;
+	settingsOpen = true;
 }
 
 export function clearChatError() {
@@ -282,7 +308,9 @@ export async function initApp() {
 			api.listModels(),
 			api.fetchStatus(),
 			api.getConfig(),
-			api.fetchMemory()
+			api.fetchMemory(),
+			api.getDownloadRegistry(),
+			api.getActiveDownloads()
 		]);
 
 		// Populate whatever succeeded, even if some calls failed/hung
@@ -296,6 +324,8 @@ export async function initApp() {
 			pinnedModelIds = cfg.pinned_models ?? [];
 		}
 		if (results[4].status === 'fulfilled') memoryInfo = results[4].value;
+		if (results[5].status === 'fulfilled') downloadRegistry = results[5].value;
+		if (results[6].status === 'fulfilled') activeDownloads = results[6].value;
 
 		const allOk = results.every((r) => r.status === 'fulfilled');
 		if (allOk) {
@@ -304,6 +334,10 @@ export async function initApp() {
 			// Auto-start status polling if any engine is loading
 			if (engineStatus?.engines?.some((e) => e.engine_state === 'starting')) {
 				startStatusPolling();
+			}
+			// Auto-start download polling if any downloads are active
+			if (activeDownloads.some((d) => d.state === 'downloading' || d.state === 'queued')) {
+				startDownloadPolling();
 			}
 			return;
 		}
@@ -752,6 +786,67 @@ export function stopStatusPolling() {
 	if (statusPollTimer) {
 		clearInterval(statusPollTimer);
 		statusPollTimer = null;
+	}
+}
+
+// --- Downloads ---
+
+export async function loadDownloadRegistry() {
+	try {
+		downloadRegistry = await api.getDownloadRegistry();
+	} catch (err) {
+		console.error('Failed to load download registry:', err);
+	}
+}
+
+export async function loadActiveDownloads() {
+	try {
+		activeDownloads = await api.getActiveDownloads();
+	} catch (err) {
+		console.error('Failed to load active downloads:', err);
+	}
+}
+
+export async function startModelDownload(registryId: string) {
+	try {
+		await api.startDownload(registryId);
+		await loadActiveDownloads();
+		startDownloadPolling();
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : 'Failed to start download.';
+		showNotification(msg);
+	}
+}
+
+export async function cancelModelDownload(downloadId: string) {
+	try {
+		await api.cancelDownload(downloadId);
+		await loadActiveDownloads();
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : 'Failed to cancel download.';
+		showNotification(msg);
+	}
+}
+
+export function startDownloadPolling() {
+	stopDownloadPolling();
+	downloadPollTimer = setInterval(async () => {
+		await Promise.all([loadActiveDownloads(), loadDownloadRegistry()]);
+		const anyActive = activeDownloads.some(
+			(d) => d.state === 'downloading' || d.state === 'queued'
+		);
+		if (!anyActive) {
+			stopDownloadPolling();
+			// Refresh models since a download may have completed
+			await refreshModels();
+		}
+	}, 1000);
+}
+
+export function stopDownloadPolling() {
+	if (downloadPollTimer) {
+		clearInterval(downloadPollTimer);
+		downloadPollTimer = null;
 	}
 }
 

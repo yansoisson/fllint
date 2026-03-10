@@ -15,6 +15,7 @@ import (
 
 	"github.com/fllint/fllint/internal/chat"
 	"github.com/fllint/fllint/internal/config"
+	"github.com/fllint/fllint/internal/download"
 	"github.com/fllint/fllint/internal/image"
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/prompt"
@@ -23,14 +24,15 @@ import (
 
 // Server holds the HTTP server and its dependencies.
 type Server struct {
-	router     chi.Router
-	cfg        *config.Config
-	llmManager *llm.Manager
-	queue      *queue.Queue
+	router      chi.Router
+	cfg         *config.Config
+	llmManager  *llm.Manager
+	queue       *queue.Queue
+	downloadMgr *download.Manager
 }
 
 // New creates a new Server with all routes configured.
-func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager) (*Server, error) {
+func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, downloadMgr *download.Manager) (*Server, error) {
 	chatStore, err := chat.NewStore(cfg.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("init chat store: %w", err)
@@ -44,10 +46,11 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager) (*Server
 	inferenceQueue := queue.NewQueue(llmManager)
 
 	s := &Server{
-		router:     chi.NewRouter(),
-		cfg:        cfg,
-		llmManager: llmManager,
-		queue:      inferenceQueue,
+		router:      chi.NewRouter(),
+		cfg:         cfg,
+		llmManager:  llmManager,
+		queue:       inferenceQueue,
+		downloadMgr: downloadMgr,
 	}
 
 	for _, mw := range CommonMiddleware() {
@@ -77,6 +80,11 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager) (*Server
 		r.Get("/config/system-prompt-default", s.getDefaultSystemPrompt)
 
 		r.Get("/memory", s.getMemory)
+
+		r.Get("/downloads/registry", s.downloadRegistry)
+		r.Post("/downloads/start", s.startDownload)
+		r.Get("/downloads/active", s.activeDownloads)
+		r.Post("/downloads/cancel", s.cancelDownload)
 
 		r.Post("/open-folder", s.openFolder)
 	})
@@ -325,6 +333,57 @@ func openInFileManager(dir string) error {
 	default:
 		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}
+}
+
+// --- Download handlers ---
+
+func (s *Server) downloadRegistry(w http.ResponseWriter, r *http.Request) {
+	models := download.Registry()
+	entries := download.CheckDownloaded(s.cfg.ModelsDir, models)
+	respondJSON(w, http.StatusOK, entries)
+}
+
+func (s *Server) startDownload(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RegistryID string `json:"registry_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+	if req.RegistryID == "" {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "registry_id is required.")
+		return
+	}
+	dl, err := s.downloadMgr.Start(req.RegistryID)
+	if err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "download_error", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, dl)
+}
+
+func (s *Server) activeDownloads(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, s.downloadMgr.Status())
+}
+
+func (s *Server) cancelDownload(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DownloadID string `json:"download_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+	if req.DownloadID == "" {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "download_id is required.")
+		return
+	}
+	if err := s.downloadMgr.Cancel(req.DownloadID); err != nil {
+		respondErrorJSON(w, http.StatusNotFound, "cancel_error", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // --- SPA serving ---

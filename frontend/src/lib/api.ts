@@ -6,7 +6,9 @@ import type {
 	ImageUploadResult,
 	EngineStatus,
 	MemoryInfo,
-	MemoryErrorInfo
+	MemoryErrorInfo,
+	RegistryModel,
+	DownloadStatus
 } from './types';
 
 const BASE = '/api';
@@ -236,6 +238,30 @@ export async function fetchMemory(): Promise<MemoryInfo> {
 
 export async function cancelQueueItem(id: string): Promise<void> {
 	await fetch(`${BASE}/queue/${id}`, { method: 'DELETE' });
+}
+
+// --- Downloads ---
+
+export async function getDownloadRegistry(): Promise<RegistryModel[]> {
+	return request('/downloads/registry');
+}
+
+export async function startDownload(registryId: string): Promise<DownloadStatus> {
+	return request('/downloads/start', {
+		method: 'POST',
+		body: JSON.stringify({ registry_id: registryId })
+	});
+}
+
+export async function getActiveDownloads(): Promise<DownloadStatus[]> {
+	return request('/downloads/active');
+}
+
+export async function cancelDownload(downloadId: string): Promise<void> {
+	await request('/downloads/cancel', {
+		method: 'POST',
+		body: JSON.stringify({ download_id: downloadId })
+	});
 }
 
 // --- Bulk Operations ---
