@@ -1,6 +1,6 @@
 <script lang="ts">
 	import ImagePreview from './ImagePreview.svelte';
-	import { sendMessage, getIsStreaming, cancelStream, cancelQueueItem, addPendingImage, getPendingImages, getEngineStatus, getQueuePosition } from '$lib/stores.svelte';
+	import { sendMessage, getIsStreaming, cancelStream, cancelQueueItem, addPendingImage, getPendingImages, getQueuePosition, isEffectiveModelLoading, getEffectiveModelId, getModels } from '$lib/stores.svelte';
 
 	let inputText = $state('');
 	let fileInput: HTMLInputElement;
@@ -14,9 +14,11 @@
 		}
 	}
 
+	let modelLoading = $derived(isEffectiveModelLoading());
+
 	async function handleSubmit() {
 		const text = inputText.trim();
-		if ((!text && getPendingImages().length === 0) || getIsStreaming()) return;
+		if ((!text && getPendingImages().length === 0) || getIsStreaming() || modelLoading) return;
 
 		inputText = '';
 		if (textareaEl) {
@@ -77,7 +79,12 @@
 		ondragleave={handleDragLeave}
 		ondrop={handleDrop}
 	>
-		{#if getQueuePosition() !== null && getQueuePosition()! > 0}
+		{#if modelLoading}
+			<div class="loading-indicator">
+				<span class="loading-spinner-small"></span>
+				<span class="loading-text">Loading model...</span>
+			</div>
+		{:else if getQueuePosition() !== null && getQueuePosition()! > 0}
 			<div class="queue-indicator">
 				<span class="queue-text">Position {getQueuePosition()} in queue...</span>
 				<button class="queue-cancel-btn" onclick={cancelQueueItem} title="Cancel" aria-label="Cancel queue item">
@@ -91,7 +98,7 @@
 		{/if}
 		<ImagePreview />
 		<div class="input-row">
-			{#if getEngineStatus()?.has_vision}
+			{#if getModels().find((m) => m.id === getEffectiveModelId())?.vision}
 				<button class="attach-btn" onclick={() => fileInput.click()} title="Attach image" aria-label="Attach image">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<line x1="12" y1="5" x2="12" y2="19" />
@@ -105,7 +112,8 @@
 				bind:value={inputText}
 				oninput={autoResize}
 				onkeydown={handleKeydown}
-				placeholder="Message Fllint..."
+				placeholder={modelLoading ? "Waiting for model to load..." : "Message Fllint..."}
+				disabled={modelLoading}
 				rows={1}
 			></textarea>
 			{#if getIsStreaming()}
@@ -123,7 +131,7 @@
 				<button
 					class="send-btn"
 					onclick={handleSubmit}
-					disabled={!inputText.trim() && getPendingImages().length === 0}
+					disabled={modelLoading || (!inputText.trim() && getPendingImages().length === 0)}
 					title="Send message"
 					aria-label="Send message"
 				>
@@ -273,5 +281,33 @@
 	.queue-cancel-btn:hover {
 		background: var(--bg-hover);
 		color: var(--text-primary);
+	}
+
+	.loading-indicator {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 12px;
+		background: var(--bg-secondary);
+		border-radius: var(--radius-md, 8px);
+		margin-bottom: 4px;
+	}
+
+	.loading-spinner-small {
+		width: 14px;
+		height: 14px;
+		border: 2px solid var(--border);
+		border-top-color: var(--accent);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.loading-text {
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
 	}
 </style>

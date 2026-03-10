@@ -131,6 +131,22 @@ export function getPinnedModelIds() {
 	return pinnedModelIds;
 }
 
+/** Check if the effective model for this tab is currently loading (not ready for inference). */
+export function isEffectiveModelLoading(): boolean {
+	const modelId = getEffectiveModelId();
+	if (!modelId) return false;
+	// Check per-engine status
+	if (engineStatus?.engines) {
+		const engine = engineStatus.engines.find((e) => e.model_id === modelId);
+		if (engine) {
+			return engine.engine_state === 'starting';
+		}
+	}
+	// If model is not in engines at all, check if it's loaded
+	const model = models.find((m) => m.id === modelId);
+	return model ? !model.loaded : false;
+}
+
 // --- Actions ---
 
 export function toggleSidebar() {
@@ -274,8 +290,8 @@ export async function initApp() {
 		if (allOk) {
 			initError = null;
 
-			// Auto-start status polling if engine is already loading a model
-			if (engineStatus?.engine_state === 'starting') {
+			// Auto-start status polling if any engine is loading
+			if (engineStatus?.engines?.some((e) => e.engine_state === 'starting')) {
 				startStatusPolling();
 			}
 			return;
@@ -542,23 +558,49 @@ export async function unloadModel(modelId: string) {
 	}
 }
 
-export async function switchModel(modelId: string) {
+/** Load a model for the current tab without changing the global default. */
+export async function selectModelForTab(modelId: string) {
+	tabModelId = modelId;
 	try {
-		await api.setActiveModel(modelId);
+		await api.loadModel(modelId);
 		await Promise.all([loadModels(), loadStatus(), loadMemory()]);
-		if (engineStatus?.engine_state === 'starting') {
+		// Start polling if this model is still loading
+		if (engineStatus?.engines?.some((e) => e.model_id === modelId && e.engine_state === 'starting')) {
 			startStatusPolling();
 		}
 	} catch (err) {
 		if (err instanceof InsufficientMemoryError) {
 			if (proMode) {
-				// Pro Mode: show popup for user to choose which models to unload
 				unloadPopup = {
 					targetModelId: modelId,
 					memoryError: err.info
 				};
 			} else {
-				// Non-Pro: auto-unload already tried and failed — show error
+				chatError = err.message;
+			}
+			return;
+		}
+		const errorMessage = err instanceof Error ? err.message : 'Failed to load model.';
+		chatError = errorMessage;
+	}
+}
+
+/** Set a model as the global default and load it. Used only for initial setup. */
+export async function switchModel(modelId: string) {
+	try {
+		await api.setActiveModel(modelId);
+		await Promise.all([loadModels(), loadStatus(), loadMemory()]);
+		if (engineStatus?.engines?.some((e) => e.model_id === modelId && e.engine_state === 'starting')) {
+			startStatusPolling();
+		}
+	} catch (err) {
+		if (err instanceof InsufficientMemoryError) {
+			if (proMode) {
+				unloadPopup = {
+					targetModelId: modelId,
+					memoryError: err.info
+				};
+			} else {
 				chatError = err.message;
 			}
 			return;
@@ -584,15 +626,11 @@ export async function confirmUnloadAndLoad(modelIdsToUnload: string[]) {
 			await api.unloadModel(id);
 		}
 		// Retry loading the target model
-		await api.setActiveModel(targetId);
+		tabModelId = targetId;
+		await api.loadModel(targetId);
 		await Promise.all([loadModels(), loadStatus(), loadMemory()]);
-		if (engineStatus?.engine_state === 'starting') {
+		if (engineStatus?.engines?.some((e) => e.engine_state === 'starting')) {
 			startStatusPolling();
-		}
-
-		// Set as tab model if in a conversation
-		if (getActiveConversationId()) {
-			tabModelId = targetId;
 		}
 	} catch (err) {
 		if (err instanceof InsufficientMemoryError) {
@@ -632,8 +670,10 @@ export async function loadStatus() {
 export function startStatusPolling() {
 	stopStatusPolling();
 	statusPollTimer = setInterval(async () => {
-		await loadStatus();
-		if (engineStatus?.engine_state !== 'starting') {
+		await Promise.all([loadStatus(), loadModels()]);
+		// Stop polling when no engine is in 'starting' state
+		const anyStarting = engineStatus?.engines?.some((e) => e.engine_state === 'starting');
+		if (!anyStarting) {
 			stopStatusPolling();
 		}
 	}, 1000);

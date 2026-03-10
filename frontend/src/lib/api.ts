@@ -134,10 +134,22 @@ export async function refreshModels(): Promise<ModelInfo[]> {
 }
 
 export async function loadModel(modelId: string): Promise<void> {
-	await request('/models/load', {
+	const res = await fetch(`${BASE}/models/load`, {
 		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ model_id: modelId })
 	});
+	if (!res.ok) {
+		const body = await res.json().catch(() => null);
+		if (body?.code === 'insufficient_memory') {
+			throw new InsufficientMemoryError({
+				model_name: body.model_name,
+				required_bytes: body.required_bytes,
+				available_bytes: body.available_bytes
+			});
+		}
+		throw new Error(body?.error ?? `Request failed (${res.status})`);
+	}
 }
 
 export async function unloadModel(modelId: string): Promise<void> {

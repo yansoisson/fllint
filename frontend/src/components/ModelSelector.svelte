@@ -2,10 +2,8 @@
 	import {
 		getModels,
 		getEffectiveModelId,
-		switchModel,
-		setTabModel,
+		selectModelForTab,
 		getEngineStatus,
-		getActiveConversationId,
 		getPinnedModelIds
 	} from '$lib/stores.svelte';
 	import type { ModelInfo, EngineStatusInfo } from '$lib/types';
@@ -69,10 +67,7 @@
 	}
 
 	function selectModel(modelId: string) {
-		if (getActiveConversationId()) {
-			setTabModel(modelId);
-		}
-		switchModel(modelId);
+		selectModelForTab(modelId);
 		open = false;
 	}
 

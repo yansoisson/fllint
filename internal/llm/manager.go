@@ -382,10 +382,11 @@ func (m *Manager) LoadModel(modelID string) error {
 	if memErr == nil {
 		budget := memory.ModelBudget(memInfo)
 		if requiredMemory+usedMemory > budget && !cfg.ProMode {
-			// Try auto-unloading LRU models to free space.
+			// Free the exact deficit: how much over budget we are
+			deficit := (requiredMemory + usedMemory) - budget
 			// Release loadMu temporarily since autoUnloadForSpace calls UnloadModel.
 			m.loadMu.Unlock()
-			m.autoUnloadForSpace(requiredMemory)
+			m.autoUnloadForSpace(deficit)
 			m.loadMu.Lock()
 
 			// Recalculate used memory after unloading
