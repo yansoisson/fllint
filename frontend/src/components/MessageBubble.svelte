@@ -35,7 +35,8 @@
 
 	.user {
 		display: flex;
-		justify-content: flex-end;
+		flex-direction: column;
+		align-items: flex-end;
 	}
 
 	.user .content {
