@@ -225,8 +225,10 @@ jobs:
         run: |
           SIGN_TOOL="packaging/macos/sparkle-bin/sign_update"
           if [ -n "$SIGN_TOOL" ] && [ -f "$SIGN_TOOL" ]; then
-            RESULT=$("$SIGN_TOOL" dist/Fllint.zip --ed-key-file <(echo "$SPARKLE_ED_PRIVATE_KEY"))
-            # Extract signature — sign_update outputs: sparkle:edSignature="..." length="..."
+            KEY_FILE=$(mktemp)
+            echo "$SPARKLE_ED_PRIVATE_KEY" > "$KEY_FILE"
+            RESULT=$("$SIGN_TOOL" dist/Fllint.zip --ed-key-file "$KEY_FILE")
+            rm -f "$KEY_FILE"
             ED_SIG=$(echo "$RESULT" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2)
             echo "SPARKLE_ED_SIGNATURE=$ED_SIG" >> $GITHUB_ENV
           else
