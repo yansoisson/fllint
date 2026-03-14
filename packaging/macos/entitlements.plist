@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Allow outgoing network connections (for serving localhost + checking updates) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Allow incoming network connections (localhost server) -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- Allow spawning child processes (llama-server, sparkle-helper) -->
+    <key>com.apple.security.cs.allow-unsigned-user-plugins</key>
+    <true/>
+
+    <!-- Disable library validation so llama-server can load its dylibs -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

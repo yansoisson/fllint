@@ -11,6 +11,8 @@ permissions:
 jobs:
   build-macos:
     runs-on: macos-14
+    env:
+      HAS_APPLE_CERTS: ${{ secrets.APPLE_CERTIFICATE_P12 != '' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,6 +40,135 @@ jobs:
 
       - name: Build macOS distribution
         run: make dist-macos
+
+      - name: Install Apple certificate
+        if: env.HAS_APPLE_CERTS == 'true'
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create a temporary keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          # Allow codesign to access the keychain
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          # Clean up cert file
+          rm -f "$CERT_PATH"
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+
+      - name: Code sign application
+        if: env.HAS_APPLE_CERTS == 'true'
+        run: |
+          APP_PATH="dist/Fllint/Fllint.app"
+
+          # Find the signing identity dynamically from the keychain
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: No Developer ID Application identity found in keychain"
+            exit 1
+          fi
+          echo "Signing with identity: $IDENTITY"
+
+          # Sign all nested binaries and frameworks first (inside-out)
+
+          # Sign Sparkle framework if present
+          if [ -d "$APP_PATH/Contents/Frameworks/Sparkle.framework" ]; then
+            codesign --force --deep --sign "$IDENTITY" \
+              --options runtime \
+              --timestamp \
+              "$APP_PATH/Contents/Frameworks/Sparkle.framework"
+          fi
+
+          # Sign sparkle-helper if present
+          if [ -f "$APP_PATH/Contents/MacOS/sparkle-helper" ]; then
+            codesign --force --sign "$IDENTITY" \
+              --options runtime \
+              --timestamp \
+              "$APP_PATH/Contents/MacOS/sparkle-helper"
+          fi
+
+          # Sign llama-server dylibs
+          for dylib in "$APP_PATH/Contents/Resources/bin/"*.dylib; do
+            [ -f "$dylib" ] || continue
+            codesign --force --sign "$IDENTITY" \
+              --options runtime \
+              --timestamp \
+              "$dylib"
+          done
+
+          # Sign llama-server binary
+          if [ -f "$APP_PATH/Contents/Resources/bin/llama-server" ]; then
+            codesign --force --sign "$IDENTITY" \
+              --options runtime \
+              --timestamp \
+              "$APP_PATH/Contents/Resources/bin/llama-server"
+          fi
+
+          # Sign the main binary with entitlements
+          codesign --force --sign "$IDENTITY" \
+            --options runtime \
+            --timestamp \
+            --entitlements packaging/macos/entitlements.plist \
+            "$APP_PATH/Contents/MacOS/fllint"
+
+          # Sign the entire .app bundle
+          codesign --force --deep --sign "$IDENTITY" \
+            --options runtime \
+            --timestamp \
+            --entitlements packaging/macos/entitlements.plist \
+            "$APP_PATH"
+
+          # Verify
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          echo "Code signing successful"
+
+      - name: Notarize application
+        if: env.HAS_APPLE_CERTS == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          # Create a zip for notarization (separate from the release zip)
+          ditto -c -k --keepParent "dist/Fllint/Fllint.app" dist/Fllint-notarize.zip
+
+          # Submit for notarization and wait
+          xcrun notarytool submit dist/Fllint-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait \
+            --timeout 600
+
+          # Staple the notarization ticket to the app
+          xcrun stapler staple "dist/Fllint/Fllint.app"
+
+          # Verify
+          xcrun stapler validate "dist/Fllint/Fllint.app"
+          spctl --assess --type execute --verbose "dist/Fllint/Fllint.app"
+
+          # Clean up
+          rm -f dist/Fllint-notarize.zip
+
+          echo "Notarization successful"
 
       - name: Zip distribution folder
         run: cd dist && zip -r Fllint.zip Fllint/
@@ -116,3 +247,10 @@ jobs:
           files: dist/Fllint.zip
           draft: true
           generate_release_notes: true
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          if [ -n "$KEYCHAIN_PATH" ] && [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
