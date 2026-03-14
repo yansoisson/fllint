@@ -55,9 +55,21 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
+          # Download and import Apple intermediate certificates (required for chain validation)
+          curl -sL "https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer" -o "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KEYCHAIN_PATH" -T /usr/bin/codesign || true
+          curl -sL "https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer" -o "$RUNNER_TEMP/AppleWWDRCAG3.cer"
+          security import "$RUNNER_TEMP/AppleWWDRCAG3.cer" -k "$KEYCHAIN_PATH" -T /usr/bin/codesign || true
+
           # Import certificate and private key
           CERT_PATH=$RUNNER_TEMP/certificate.p12
           echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+
+          # Debug: check P12 contents
+          echo "=== P12 file info ==="
+          openssl pkcs12 -in "$CERT_PATH" -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -nokeys -clcerts 2>&1 | grep -E "subject|issuer|serial" || true
+          echo "=== End P12 info ==="
+
           security import "$CERT_PATH" \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
             -A \
@@ -66,10 +78,18 @@ jobs:
 
           # Allow codesign to access the keychain
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db /Library/Keychains/System.keychain
+
+          # Debug: check what was imported
+          echo "=== Keychain dump (certs) ==="
+          security find-certificate -a "$KEYCHAIN_PATH" | grep "labl" || true
+          echo "=== Identities (including invalid) ==="
+          security find-identity "$KEYCHAIN_PATH" || true
+          echo "=== Valid identities ==="
+          security find-identity -v "$KEYCHAIN_PATH" || true
 
           # Clean up cert file
-          rm -f "$CERT_PATH"
+          rm -f "$CERT_PATH" "$RUNNER_TEMP/DeveloperIDG2CA.cer" "$RUNNER_TEMP/AppleWWDRCAG3.cer"
 
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
 
@@ -182,7 +202,7 @@ jobs:
           echo "Notarization successful"
 
       - name: Zip distribution folder
-        run: cd dist && zip -r Fllint.zip Fllint/
+        run: cd dist && ditto -c -k --keepParent Fllint Fllint.zip
 
       - name: Sign update with Sparkle EdDSA
         if: env.SPARKLE_EDDSA_PRIVATE_KEY != ''
