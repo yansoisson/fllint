@@ -134,8 +134,8 @@ The macOS build optionally includes [Sparkle 2](https://sparkle-project.org/) fo
 
 **Release workflow** (`git tag v1.0.1 && git push --tags`):
 1. GitHub Actions builds the macOS distribution
-2. Signs the zip with Sparkle's EdDSA key (`SPARKLE_EDDSA_PRIVATE_KEY` secret)
+2. Signs the zip with Sparkle's EdDSA key (`SPARKLE_ED_PRIVATE_KEY` secret)
 3. Updates `docs/appcast.xml` with the new version entry
 4. Creates a draft GitHub Release with `Fllint.zip`
 
-**One-time setup**: Generate an EdDSA keypair with Sparkle's `generate_keys` tool. Put the public key in `Info.plist` (`SUPublicEDKey`) and the private key in GitHub Secrets (`SPARKLE_EDDSA_PRIVATE_KEY`).
+**One-time setup**: Generate an EdDSA keypair with Sparkle's `generate_keys` tool. Put the public key in `Info.plist` (`SUPublicEDKey`) and the private key in GitHub Secrets (`SPARKLE_ED_PRIVATE_KEY`).
