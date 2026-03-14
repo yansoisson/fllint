@@ -15,6 +15,8 @@ jobs:
       HAS_APPLE_CERTS: ${{ secrets.APPLE_CERTIFICATE_P12 != '' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -221,11 +223,7 @@ jobs:
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
-          SIGN_TOOL="packaging/macos/Sparkle.framework/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/sign_update"
-          if [ ! -f "$SIGN_TOOL" ]; then
-            # Alternative location in some Sparkle versions
-            SIGN_TOOL=$(find packaging/macos/Sparkle.framework -name "sign_update" -type f | head -1)
-          fi
+          SIGN_TOOL="packaging/macos/sparkle-bin/sign_update"
           if [ -n "$SIGN_TOOL" ] && [ -f "$SIGN_TOOL" ]; then
             RESULT=$("$SIGN_TOOL" dist/Fllint.zip --ed-key-file <(echo "$SPARKLE_ED_PRIVATE_KEY"))
             # Extract signature — sign_update outputs: sparkle:edSignature="..." length="..."

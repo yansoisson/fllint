@@ -9,9 +9,9 @@ SPARKLE_VERSION="${1:-2.6.4}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEST="$SCRIPT_DIR/Sparkle.framework"
 
-if [ -d "$DEST" ]; then
-    echo "Sparkle.framework already exists at $DEST"
-    echo "Delete it first to re-download."
+if [ -d "$DEST" ] && [ -d "$SCRIPT_DIR/sparkle-bin" ]; then
+    echo "Sparkle.framework and sparkle-bin already exist at $SCRIPT_DIR"
+    echo "Delete them first to re-download."
     exit 0
 fi
 
@@ -33,3 +33,8 @@ fi
 
 cp -R "$TEMP_DIR/Sparkle.framework" "$DEST"
 echo "Sparkle.framework installed at $DEST"
+
+if [ -d "$TEMP_DIR/bin" ]; then
+    cp -R "$TEMP_DIR/bin" "$SCRIPT_DIR/sparkle-bin"
+    echo "Sparkle bin tools installed at $SCRIPT_DIR/sparkle-bin"
+fi
