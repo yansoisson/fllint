@@ -8,7 +8,8 @@ import type {
 	MemoryInfo,
 	MemoryErrorInfo,
 	RegistryModel,
-	DownloadStatus
+	DownloadStatus,
+	VersionInfo
 } from './types';
 
 const BASE = '/api';
@@ -268,4 +269,16 @@ export async function cancelDownload(downloadId: string): Promise<void> {
 
 export async function deleteAllConversations(): Promise<void> {
 	await fetch(`${BASE}/conversations`, { method: 'DELETE' });
+}
+
+// --- Version ---
+
+export async function getVersion(): Promise<VersionInfo> {
+	return request('/version');
+}
+
+// --- Updates ---
+
+export async function checkForUpdate(): Promise<void> {
+	await request('/check-update', { method: 'POST' });
 }

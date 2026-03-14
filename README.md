@@ -27,6 +27,7 @@ And for those who *do* want full control: Pro Mode exposes every parameter, ever
 - **Image upload** — send images to vision-capable models directly in the chat
 - **Single-folder architecture** — everything in one place, clean uninstall guaranteed
 - **Pro Mode** — full control over model parameters and backend settings
+- **Auto-updates** — check for and install updates directly from the app (macOS)
 
 ### Roadmap
 

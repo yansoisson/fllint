@@ -89,3 +89,9 @@ $RECYCLE.BIN/
 
 llama-b8192-bin-macos-arm64.tar
 models/
+
+# -----------------------------------------------------------------------------
+# Sparkle (downloaded at build time, not committed)
+# -----------------------------------------------------------------------------
+packaging/macos/Sparkle.framework/
+packaging/macos/sparkle-helper/sparkle-helper

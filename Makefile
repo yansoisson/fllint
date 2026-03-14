@@ -1,4 +1,4 @@
-.PHONY: all build frontend backend run dev dev-frontend dev-backend clean test fmt dist-macos dist-clean
+.PHONY: all build frontend backend run dev dev-frontend dev-backend clean test fmt dist-macos dist-clean version sparkle
 
 # Full build: frontend then Go binary
 all: build
@@ -61,3 +61,11 @@ dist-macos: build
 # Clean distribution artifacts
 dist-clean:
 	rm -rf dist/
+
+# Print current version from internal/version/version.go
+version:
+	@grep 'Version =' internal/version/version.go | head -1 | cut -d'"' -f2
+
+# Download Sparkle.framework for macOS auto-update (idempotent)
+sparkle:
+	@bash packaging/macos/download-sparkle.sh

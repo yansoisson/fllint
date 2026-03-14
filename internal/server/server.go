@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
@@ -20,6 +24,7 @@ import (
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/prompt"
 	"github.com/fllint/fllint/internal/queue"
+	"github.com/fllint/fllint/internal/version"
 )
 
 // Server holds the HTTP server and its dependencies.
@@ -29,6 +34,10 @@ type Server struct {
 	llmManager  *llm.Manager
 	queue       *queue.Queue
 	downloadMgr *download.Manager
+
+	isProduction     bool
+	sparkleHelperMu  sync.Mutex
+	sparkleHelperCmd *exec.Cmd
 }
 
 // New creates a new Server with all routes configured.
@@ -46,11 +55,12 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 	inferenceQueue := queue.NewQueue(llmManager)
 
 	s := &Server{
-		router:      chi.NewRouter(),
-		cfg:         cfg,
-		llmManager:  llmManager,
-		queue:       inferenceQueue,
-		downloadMgr: downloadMgr,
+		router:       chi.NewRouter(),
+		cfg:          cfg,
+		llmManager:   llmManager,
+		queue:        inferenceQueue,
+		downloadMgr:  downloadMgr,
+		isProduction: frontendFS != nil,
 	}
 
 	for _, mw := range CommonMiddleware() {
@@ -87,6 +97,9 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 		r.Post("/downloads/cancel", s.cancelDownload)
 
 		r.Post("/open-folder", s.openFolder)
+
+		r.Get("/version", s.getVersion)
+		r.Post("/check-update", s.checkUpdate)
 	})
 
 	// SPA fallback (after API routes)
@@ -384,6 +397,80 @@ func (s *Server) cancelDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// --- Version handler ---
+
+func (s *Server) getVersion(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]string{
+		"version": version.Version,
+		"build":   version.Build,
+	})
+}
+
+// --- Update handler ---
+
+func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
+	if runtime.GOOS != "darwin" {
+		respondErrorJSON(w, http.StatusBadRequest, "unsupported_platform",
+			"Auto-update is only available on macOS.")
+		return
+	}
+	if !s.isProduction {
+		respondErrorJSON(w, http.StatusBadRequest, "dev_mode",
+			"Auto-update is not available in development mode.")
+		return
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		respondErrorJSON(w, http.StatusInternalServerError, "update_error",
+			"Could not determine executable path.")
+		return
+	}
+	exe, _ = filepath.EvalSymlinks(exe)
+	helperPath := filepath.Join(filepath.Dir(exe), "sparkle-helper")
+
+	if _, err := os.Stat(helperPath); err != nil {
+		respondErrorJSON(w, http.StatusNotFound, "update_unavailable",
+			"Update helper not found. Updates are not available in this build.")
+		return
+	}
+
+	s.sparkleHelperMu.Lock()
+	defer s.sparkleHelperMu.Unlock()
+
+	// Check if helper is already running
+	if s.sparkleHelperCmd != nil && s.sparkleHelperCmd.ProcessState == nil {
+		respondJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		return
+	}
+
+	cmd := exec.Command(helperPath)
+	if err := cmd.Start(); err != nil {
+		respondErrorJSON(w, http.StatusInternalServerError, "update_error",
+			"Failed to launch update checker.")
+		return
+	}
+	s.sparkleHelperCmd = cmd
+
+	// Reap the process in background to avoid zombies
+	go func() {
+		cmd.Wait()
+	}()
+
+	log.Println("Sparkle: update check launched")
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// StopSparkleHelper kills the sparkle-helper process if it is running.
+func (s *Server) StopSparkleHelper() {
+	s.sparkleHelperMu.Lock()
+	defer s.sparkleHelperMu.Unlock()
+	if s.sparkleHelperCmd != nil && s.sparkleHelperCmd.Process != nil && s.sparkleHelperCmd.ProcessState == nil {
+		s.sparkleHelperCmd.Process.Kill()
+		s.sparkleHelperCmd = nil
+	}
 }
 
 // --- SPA serving ---

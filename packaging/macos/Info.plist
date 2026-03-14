@@ -13,10 +13,10 @@
     <string>io.fllint.app</string>
 
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>1</string>
 
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>0.1.0</string>
 
     <key>CFBundleExecutable</key>
     <string>fllint</string>
@@ -38,5 +38,20 @@
 
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
+
+    <!-- Sparkle Auto-Update -->
+    <!-- Replace SUPublicEDKey with your actual EdDSA public key from generate_keys -->
+    <!-- Update SUFeedURL if the repo or domain changes -->
+    <key>SUFeedURL</key>
+    <string>https://fllint.github.io/fllint/appcast.xml</string>
+
+    <key>SUPublicEDKey</key>
+    <string>1T2Hy5f2Pi2c80mpfWwjtqHpPCT8Wa/VzSKxz3CbS6o=</string>
+
+    <key>SUEnableAutomaticChecks</key>
+    <false/>
+
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
 </dict>
 </plist>

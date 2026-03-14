@@ -126,3 +126,8 @@ export interface MemoryInfo {
 		loaded: boolean;
 	}[];
 }
+
+export interface VersionInfo {
+	version: string;
+	build: string;
+}

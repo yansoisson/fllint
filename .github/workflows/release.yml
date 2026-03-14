@@ -1,0 +1,111 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verify tag version matches code
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CODE_VERSION=$(grep 'Version =' internal/version/version.go | head -1 | cut -d'"' -f2)
+          if [ "$TAG_VERSION" != "$CODE_VERSION" ]; then
+            echo "ERROR: Tag version ($TAG_VERSION) does not match code version ($CODE_VERSION)"
+            echo "Update internal/version/version.go before tagging."
+            exit 1
+          fi
+          echo "VERSION=$TAG_VERSION" >> $GITHUB_ENV
+
+      - name: Download Sparkle framework
+        run: bash packaging/macos/download-sparkle.sh
+
+      - name: Build macOS distribution
+        run: make dist-macos
+
+      - name: Zip distribution folder
+        run: cd dist && zip -r Fllint.zip Fllint/
+
+      - name: Sign update with Sparkle EdDSA
+        if: env.SPARKLE_EDDSA_PRIVATE_KEY != ''
+        env:
+          SPARKLE_EDDSA_PRIVATE_KEY: ${{ secrets.SPARKLE_EDDSA_PRIVATE_KEY }}
+        run: |
+          SIGN_TOOL="packaging/macos/Sparkle.framework/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/sign_update"
+          if [ ! -f "$SIGN_TOOL" ]; then
+            # Alternative location in some Sparkle versions
+            SIGN_TOOL=$(find packaging/macos/Sparkle.framework -name "sign_update" -type f | head -1)
+          fi
+          if [ -n "$SIGN_TOOL" ] && [ -f "$SIGN_TOOL" ]; then
+            RESULT=$("$SIGN_TOOL" dist/Fllint.zip --ed-key-file <(echo "$SPARKLE_EDDSA_PRIVATE_KEY"))
+            # Extract signature — sign_update outputs: sparkle:edSignature="..." length="..."
+            ED_SIG=$(echo "$RESULT" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2)
+            echo "SPARKLE_ED_SIGNATURE=$ED_SIG" >> $GITHUB_ENV
+          else
+            echo "WARNING: sign_update tool not found, skipping EdDSA signing"
+          fi
+
+      - name: Get zip file size
+        run: |
+          SIZE=$(stat -f%z dist/Fllint.zip)
+          echo "ZIP_SIZE=$SIZE" >> $GITHUB_ENV
+
+      - name: Generate appcast entry
+        run: |
+          DATE=$(date -R 2>/dev/null || date -u +"%a, %d %b %Y %H:%M:%S %z")
+          cat > dist/appcast-item.xml << XMLEOF
+            <item>
+              <title>Version ${VERSION}</title>
+              <pubDate>${DATE}</pubDate>
+              <sparkle:version>${VERSION}</sparkle:version>
+              <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+              <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+              <enclosure
+                url="https://github.com/fllint/fllint/releases/download/${GITHUB_REF_NAME}/Fllint.zip"
+                type="application/octet-stream"
+                sparkle:edSignature="${SPARKLE_ED_SIGNATURE:-UNSIGNED}"
+                length="${ZIP_SIZE}"
+              />
+            </item>
+          XMLEOF
+          echo "--- Appcast item ---"
+          cat dist/appcast-item.xml
+
+      - name: Update appcast.xml
+        run: |
+          ITEM=$(cat dist/appcast-item.xml)
+          # Insert the new item before the closing </channel> tag
+          sed -i '' "s|</channel>|${ITEM}\n  </channel>|" docs/appcast.xml
+          echo "--- Updated appcast.xml ---"
+          cat docs/appcast.xml
+
+      - name: Commit updated appcast
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/appcast.xml
+          git commit -m "Update appcast.xml for ${GITHUB_REF_NAME}" || echo "No changes to commit"
+          git push origin HEAD:main || echo "WARNING: Could not push appcast update"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Fllint.zip
+          draft: true
+          generate_release_notes: true

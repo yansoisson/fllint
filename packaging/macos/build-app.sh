@@ -58,7 +58,33 @@ else
     echo "         The app will work but won't have a custom icon."
 fi
 
-# Step 6: Copy llama-server binary and shared libraries
+# Step 6: Copy Sparkle.framework (optional — enables auto-update)
+SPARKLE_SRC="$SCRIPT_DIR/Sparkle.framework"
+FRAMEWORKS_DST="$APP/Contents/Frameworks"
+
+if [ -d "$SPARKLE_SRC" ]; then
+    mkdir -p "$FRAMEWORKS_DST"
+    cp -R "$SPARKLE_SRC" "$FRAMEWORKS_DST/Sparkle.framework"
+    echo "Sparkle.framework: copied"
+else
+    echo "NOTE: Sparkle.framework not found at $SPARKLE_SRC"
+    echo "      Auto-update will not be available. Run ./download-sparkle.sh to fetch it."
+fi
+
+# Step 7: Build and copy sparkle-helper (optional — requires Sparkle.framework)
+HELPER_SRC="$SCRIPT_DIR/sparkle-helper"
+
+if [ -d "$SPARKLE_SRC" ] && [ -f "$HELPER_SRC/main.m" ]; then
+    echo "--- Building sparkle-helper ---"
+    make -C "$HELPER_SRC" SPARKLE_FRAMEWORK="$SPARKLE_SRC" build
+    cp "$HELPER_SRC/sparkle-helper" "$APP/Contents/MacOS/sparkle-helper"
+    chmod +x "$APP/Contents/MacOS/sparkle-helper"
+    echo "sparkle-helper: built and copied"
+else
+    echo "NOTE: sparkle-helper not built (Sparkle.framework or source not found)"
+fi
+
+# Step 8: Copy llama-server binary and shared libraries
 BIN_SRC="$PROJECT_ROOT/bin"
 BIN_DST="$APP/Contents/Resources/bin"
 

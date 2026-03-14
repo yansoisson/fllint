@@ -38,6 +38,8 @@
 	let dragModelId = $state<string | null>(null);
 	let dragOverModelId = $state<string | null>(null);
 	let activeTab = $state<SettingsTab>('general');
+	let appVersion = $state<string | null>(null);
+	let checkingUpdate = $state(false);
 
 	// Loaded models derived from model list
 	let loadedModels = $derived(getModels().filter((m) => m.loaded));
@@ -176,6 +178,12 @@
 			} catch {
 				defaultPrompt = '';
 			}
+			try {
+				const v = await api.getVersion();
+				appVersion = v.version;
+			} catch {
+				appVersion = null;
+			}
 		} catch (err) {
 			console.error('Failed to load settings:', err);
 			error = 'Failed to load settings. Please try again.';
@@ -196,6 +204,18 @@
 			error = 'Failed to save settings. Please try again.';
 		} finally {
 			saving = false;
+		}
+	}
+
+	async function handleCheckUpdate() {
+		checkingUpdate = true;
+		try {
+			await api.checkForUpdate();
+			showNotification('Checking for updates...', 'info');
+		} catch (err: any) {
+			showNotification(err.message || 'Failed to check for updates.', 'error');
+		} finally {
+			checkingUpdate = false;
 		}
 	}
 
@@ -473,6 +493,32 @@
 						<button class="save-btn" onclick={save} disabled={saving}>
 							{saving ? 'Saving...' : 'Save Settings'}
 						</button>
+
+						<!-- ==================== ABOUT ==================== -->
+						<section class="section">
+							<h4 class="section-title">About</h4>
+							<div class="field">
+								<div class="about-row">
+									<div>
+										<span class="field-label">Fllint</span>
+										<p class="field-desc">
+											{#if appVersion}
+												Version {appVersion}
+											{:else}
+												Version unknown
+											{/if}
+										</p>
+									</div>
+									<button
+										class="secondary-btn"
+										onclick={handleCheckUpdate}
+										disabled={checkingUpdate}
+									>
+										{checkingUpdate ? 'Checking...' : 'Check for Updates'}
+									</button>
+								</div>
+							</div>
+						</section>
 
 						<!-- ==================== DANGER ZONE ==================== -->
 						<section class="section danger-zone">
@@ -1089,6 +1135,13 @@
 	.toggle-row {
 		display: flex;
 		align-items: flex-start;
+		justify-content: space-between;
+		gap: 16px;
+	}
+
+	.about-row {
+		display: flex;
+		align-items: center;
 		justify-content: space-between;
 		gap: 16px;
 	}

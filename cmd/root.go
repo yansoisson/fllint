@@ -8,8 +8,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -92,6 +94,11 @@ func Run(frontendFS fs.FS) {
 				log.Printf("Could not open browser: %v (open %s manually)", err, url)
 			}
 		}()
+
+		// Launch Sparkle update check (macOS only, production only)
+		if runtime.GOOS == "darwin" {
+			go launchSparkleHelper()
+		}
 	}
 
 	// Shared shutdown logic — safe to call from multiple goroutines
@@ -99,6 +106,7 @@ func Run(frontendFS fs.FS) {
 	shutdown := func() {
 		shutdownOnce.Do(func() {
 			log.Println("Shutting down...")
+			srv.StopSparkleHelper()
 			srv.StopQueue()
 			downloadMgr.StopAll()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -134,6 +142,32 @@ func Run(frontendFS fs.FS) {
 	)
 
 	log.Println("Fllint stopped.")
+}
+
+// launchSparkleHelper starts the sparkle-helper binary for an update check.
+// It is a no-op if the helper binary does not exist.
+func launchSparkleHelper() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	exe, _ = filepath.EvalSymlinks(exe)
+	helperPath := filepath.Join(filepath.Dir(exe), "sparkle-helper")
+
+	if _, err := os.Stat(helperPath); err != nil {
+		log.Println("Sparkle: helper not found, skipping update check")
+		return
+	}
+
+	cmd := exec.Command(helperPath)
+	if err := cmd.Start(); err != nil {
+		log.Printf("Sparkle: failed to launch helper: %v", err)
+		return
+	}
+	log.Println("Sparkle: checking for updates...")
+
+	// Reap the process to avoid zombies
+	go cmd.Wait()
 }
 
 // waitForServer blocks until the given address is accepting TCP connections,

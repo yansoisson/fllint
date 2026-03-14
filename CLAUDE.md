@@ -22,6 +22,8 @@ make fmt            # go fmt ./...
 make clean          # Remove binary, frontend/build, .svelte-kit
 make dist-macos     # Build macOS .app distribution → dist/Fllint/
 make dist-clean     # Remove dist/ folder
+make version        # Print current app version
+make sparkle        # Download Sparkle.framework for macOS auto-update
 ```
 
 Frontend-specific (from `frontend/`):
@@ -47,6 +49,7 @@ Single-binary local AI chat app. Go backend serves a SvelteKit SPA embedded via 
 - **`internal/image/`**: Multipart upload (10MB limit), UUID filenames, serves via `/api/uploads/*`
 - **`internal/download/`**: In-app model download manager. `Manager` handles a single-worker download queue with `.partial` file resume, progress tracking via `atomic.Int64`, URL allowlist (huggingface.co only), and disk space checking. `registry.go` defines official downloadable models. Downloads to `{modelsDir}/{Tier}/` subdirectories.
 - **`internal/launcher/`**: `fyne.io/systray` (must run on main goroutine), platform-specific browser open
+- **`internal/version/`**: App version constants (`Version`, `Build`), exposed via `/api/version`
 
 ### Frontend (SvelteKit 2 + Svelte 5)
 
@@ -77,6 +80,8 @@ All under `/api/`:
 - `POST /downloads/start` — start a model download (`{registry_id}`)
 - `GET /downloads/active` — list active/queued downloads with progress
 - `POST /downloads/cancel` — cancel a download (`{download_id}`)
+- `GET /version` — app version info (`{version, build}`)
+- `POST /check-update` — launch Sparkle update checker (macOS production only)
 
 ## LLM Backend (llama.cpp)
 
@@ -104,6 +109,9 @@ Fllint/
     Contents/
       Info.plist
       MacOS/fllint        ← Go binary
+      MacOS/sparkle-helper ← Sparkle update checker (optional)
+      Frameworks/
+        Sparkle.framework/ ← Auto-update framework (optional)
       Resources/
         icon.icns
         bin/llama-server  ← Bundled inference server
@@ -113,3 +121,21 @@ Fllint/
 ```
 
 Path resolution (`internal/paths/`) auto-detects the `.app` bundle and resolves all paths relative to the `Fllint/` folder. Env vars override auto-detection for dev/debugging. The `packaging/macos/` directory contains `Info.plist` and `build-app.sh`.
+
+### Auto-Update (Sparkle 2)
+
+The macOS build optionally includes [Sparkle 2](https://sparkle-project.org/) for in-app updates:
+
+- **Framework**: `Sparkle.framework` in `Contents/Frameworks/` — downloaded via `make sparkle` or `packaging/macos/download-sparkle.sh`
+- **Helper**: `sparkle-helper` in `Contents/MacOS/` — Objective-C binary that initializes Sparkle's `SPUStandardUpdaterController`
+- **Config**: `SUFeedURL` and `SUPublicEDKey` in `Info.plist` — update feed URL and EdDSA public key
+- **Appcast**: `docs/appcast.xml` — served via GitHub Pages, updated by the release workflow
+- **Graceful degradation**: If Sparkle or sparkle-helper is missing, the app works normally without auto-update
+
+**Release workflow** (`git tag v1.0.1 && git push --tags`):
+1. GitHub Actions builds the macOS distribution
+2. Signs the zip with Sparkle's EdDSA key (`SPARKLE_EDDSA_PRIVATE_KEY` secret)
+3. Updates `docs/appcast.xml` with the new version entry
+4. Creates a draft GitHub Release with `Fllint.zip`
+
+**One-time setup**: Generate an EdDSA keypair with Sparkle's `generate_keys` tool. Put the public key in `Info.plist` (`SUPublicEDKey`) and the private key in GitHub Secrets (`SPARKLE_EDDSA_PRIVATE_KEY`).
