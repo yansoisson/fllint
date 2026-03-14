@@ -494,21 +494,19 @@
 							{saving ? 'Saving...' : 'Save Settings'}
 						</button>
 
-						<!-- ==================== ABOUT ==================== -->
+						<!-- ==================== ABOUT & UPDATES ==================== -->
 						<section class="section">
-							<h4 class="section-title">About</h4>
+							<h4 class="section-title">About & Updates</h4>
 							<div class="field">
-								<div class="about-row">
-									<div>
-										<span class="field-label">Fllint</span>
-										<p class="field-desc">
-											{#if appVersion}
-												Version {appVersion}
-											{:else}
-												Version unknown
-											{/if}
-										</p>
-									</div>
+								<p class="version-text">
+									{#if appVersion}
+										Fllint v{appVersion}
+									{:else}
+										Fllint
+									{/if}
+								</p>
+								<p class="field-desc">Fllint checks for updates automatically when you open the app.</p>
+								<div class="update-row">
 									<button
 										class="secondary-btn"
 										onclick={handleCheckUpdate}
@@ -1139,11 +1137,14 @@
 		gap: 16px;
 	}
 
-	.about-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 16px;
+	.version-text {
+		color: var(--text-muted);
+		font-size: 0.85rem;
+		margin: 0 0 4px;
+	}
+
+	.update-row {
+		margin-top: 12px;
 	}
 
 	.toggle {

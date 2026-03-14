@@ -4,7 +4,8 @@
 		getActiveConversationId,
 		deleteConversation,
 		navigateToNewConversation,
-		getSidebarOpen
+		getSidebarOpen,
+		getAppVersion
 	} from '$lib/stores.svelte';
 
 	let confirmDeleteId = $state<string | null>(null);
@@ -57,6 +58,9 @@
 			<div class="empty">No conversations yet</div>
 		{/if}
 	</div>
+	{#if getAppVersion()}
+		<div class="version-badge">v{getAppVersion()}</div>
+	{/if}
 </aside>
 
 <style>
@@ -173,5 +177,11 @@
 		text-align: center;
 		color: var(--text-muted);
 		font-size: 0.875rem;
+	}
+
+	.version-badge {
+		padding: 8px 16px;
+		color: var(--text-muted);
+		font-size: 0.7rem;
 	}
 </style>

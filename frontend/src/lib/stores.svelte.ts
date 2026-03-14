@@ -49,6 +49,9 @@ let unloadPopup = $state<{
 	memoryError: MemoryErrorInfo;
 } | null>(null);
 
+// --- Version ---
+let appVersion = $state<string | null>(null);
+
 // --- UI ---
 let sidebarOpen = $state(true);
 let settingsOpen = $state(false);
@@ -146,6 +149,9 @@ export function getUnloadPopup() {
 }
 export function getProMode() {
 	return proMode;
+}
+export function getAppVersion() {
+	return appVersion;
 }
 export function getPinnedModelIds() {
 	return pinnedModelIds;
@@ -301,6 +307,9 @@ export async function initApp() {
 			}
 		};
 	}
+
+	// Fetch version (non-blocking, best-effort)
+	api.getVersion().then((v) => { appVersion = v.version; }).catch(() => {});
 
 	for (let attempt = 0; attempt < maxRetries; attempt++) {
 		const results = await Promise.allSettled([

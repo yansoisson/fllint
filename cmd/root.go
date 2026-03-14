@@ -8,10 +8,8 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -22,6 +20,7 @@ import (
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/paths"
 	"github.com/fllint/fllint/internal/server"
+	"github.com/fllint/fllint/internal/updater"
 )
 
 // Run is the main entry point for the application.
@@ -95,9 +94,17 @@ func Run(frontendFS fs.FS) {
 			}
 		}()
 
-		// Launch Sparkle update check (macOS only, production only)
-		if runtime.GOOS == "darwin" {
-			go launchSparkleHelper()
+		// Auto-check for updates after a short delay (don't slow down startup)
+		if updater.HelperExists() {
+			go func() {
+				time.Sleep(10 * time.Second)
+				log.Println("Sparkle: auto-checking for updates")
+				if err := updater.CheckForUpdate(); err != nil {
+					log.Printf("Sparkle: %v", err)
+				}
+			}()
+		} else {
+			log.Println("Sparkle: helper not found, auto-update disabled")
 		}
 	}
 
@@ -106,7 +113,6 @@ func Run(frontendFS fs.FS) {
 	shutdown := func() {
 		shutdownOnce.Do(func() {
 			log.Println("Shutting down...")
-			srv.StopSparkleHelper()
 			srv.StopQueue()
 			downloadMgr.StopAll()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -142,32 +148,6 @@ func Run(frontendFS fs.FS) {
 	)
 
 	log.Println("Fllint stopped.")
-}
-
-// launchSparkleHelper starts the sparkle-helper binary for an update check.
-// It is a no-op if the helper binary does not exist.
-func launchSparkleHelper() {
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	exe, _ = filepath.EvalSymlinks(exe)
-	helperPath := filepath.Join(filepath.Dir(exe), "sparkle-helper")
-
-	if _, err := os.Stat(helperPath); err != nil {
-		log.Println("Sparkle: helper not found, skipping update check")
-		return
-	}
-
-	cmd := exec.Command(helperPath)
-	if err := cmd.Start(); err != nil {
-		log.Printf("Sparkle: failed to launch helper: %v", err)
-		return
-	}
-	log.Println("Sparkle: checking for updates...")
-
-	// Reap the process to avoid zombies
-	go cmd.Wait()
 }
 
 // waitForServer blocks until the given address is accepting TCP connections,
