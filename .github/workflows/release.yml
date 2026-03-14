@@ -77,7 +77,7 @@ jobs:
               <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
               <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
               <enclosure
-                url="https://github.com/fllint/fllint/releases/download/${GITHUB_REF_NAME}/Fllint.zip"
+                url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/Fllint.zip"
                 type="application/octet-stream"
                 sparkle:edSignature="${SPARKLE_ED_SIGNATURE:-UNSIGNED}"
                 length="${ZIP_SIZE}"
@@ -89,9 +89,14 @@ jobs:
 
       - name: Update appcast.xml
         run: |
-          ITEM=$(cat dist/appcast-item.xml)
-          # Insert the new item before the closing </channel> tag
-          sed -i '' "s|</channel>|${ITEM}\n  </channel>|" docs/appcast.xml
+          # Use Python to insert the item XML before </channel> (avoids sed multiline issues)
+          python3 -c "
+          import sys
+          item = open('dist/appcast-item.xml').read()
+          appcast = open('docs/appcast.xml').read()
+          appcast = appcast.replace('</channel>', item + '\n  </channel>')
+          open('docs/appcast.xml', 'w').write(appcast)
+          "
           echo "--- Updated appcast.xml ---"
           cat docs/appcast.xml
 
@@ -99,9 +104,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
           git add docs/appcast.xml
           git commit -m "Update appcast.xml for ${GITHUB_REF_NAME}" || echo "No changes to commit"
-          git push origin HEAD:main || echo "WARNING: Could not push appcast update"
+          git push origin main || echo "WARNING: Could not push appcast update"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
