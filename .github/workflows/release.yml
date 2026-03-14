@@ -35,6 +35,18 @@ jobs:
           fi
           echo "VERSION=$TAG_VERSION" >> $GITHUB_ENV
 
+      - name: Patch Info.plist with release version
+        run: |
+          # Set CFBundleShortVersionString to the semver (e.g. "0.3.0")
+          plutil -replace CFBundleShortVersionString -string "$VERSION" packaging/macos/Info.plist
+
+          # Set CFBundleVersion to a unique build number (git commit count)
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+          plutil -replace CFBundleVersion -string "$BUILD_NUMBER" packaging/macos/Info.plist
+
+          echo "Info.plist patched: version=$VERSION build=$BUILD_NUMBER"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+
       - name: Download Sparkle framework
         run: bash packaging/macos/download-sparkle.sh
 
@@ -205,9 +217,9 @@ jobs:
         run: cd dist && ditto -c -k --keepParent Fllint Fllint.zip
 
       - name: Sign update with Sparkle EdDSA
-        if: env.SPARKLE_EDDSA_PRIVATE_KEY != ''
+        if: env.SPARKLE_ED_PRIVATE_KEY != ''
         env:
-          SPARKLE_EDDSA_PRIVATE_KEY: ${{ secrets.SPARKLE_EDDSA_PRIVATE_KEY }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           SIGN_TOOL="packaging/macos/Sparkle.framework/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/sign_update"
           if [ ! -f "$SIGN_TOOL" ]; then
@@ -215,7 +227,7 @@ jobs:
             SIGN_TOOL=$(find packaging/macos/Sparkle.framework -name "sign_update" -type f | head -1)
           fi
           if [ -n "$SIGN_TOOL" ] && [ -f "$SIGN_TOOL" ]; then
-            RESULT=$("$SIGN_TOOL" dist/Fllint.zip --ed-key-file <(echo "$SPARKLE_EDDSA_PRIVATE_KEY"))
+            RESULT=$("$SIGN_TOOL" dist/Fllint.zip --ed-key-file <(echo "$SPARKLE_ED_PRIVATE_KEY"))
             # Extract signature — sign_update outputs: sparkle:edSignature="..." length="..."
             ED_SIG=$(echo "$RESULT" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2)
             echo "SPARKLE_ED_SIGNATURE=$ED_SIG" >> $GITHUB_ENV

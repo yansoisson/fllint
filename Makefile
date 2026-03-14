@@ -11,7 +11,7 @@ frontend:
 
 # Build Go binary (requires frontend/build to exist)
 backend:
-	CGO_ENABLED=1 go build -o fllint .
+	CGO_ENABLED=1 go build -ldflags "-X github.com/fllint/fllint/internal/version.Build=$${BUILD_NUMBER:-$$(git rev-list --count HEAD 2>/dev/null || echo 1)}" -o fllint .
 
 # Run the built binary
 run: build
