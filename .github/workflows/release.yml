@@ -55,13 +55,12 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Import certificate
+          # Import certificate and private key
           CERT_PATH=$RUNNER_TEMP/certificate.p12
           echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
           security import "$CERT_PATH" \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
             -A \
-            -t cert \
             -f pkcs12 \
             -k "$KEYCHAIN_PATH"
 
@@ -79,10 +78,22 @@ jobs:
         run: |
           APP_PATH="dist/Fllint/Fllint.app"
 
-          # Find the signing identity dynamically from the keychain
+          # Debug: show all identities in the keychain
+          echo "=== All identities in keychain ==="
+          security find-identity -v "$KEYCHAIN_PATH" || true
+          echo "=== Codesigning identities ==="
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
+          echo "=== End identities ==="
+
+          # Find signing identity — try Developer ID Application first, fall back to any codesigning identity
           IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
           if [ -z "$IDENTITY" ]; then
-            echo "ERROR: No Developer ID Application identity found in keychain"
+            echo "No 'Developer ID Application' identity found, trying any codesigning identity..."
+            IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -v "^$" | grep -v "valid identities found" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          fi
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: No codesigning identity found in keychain"
+            echo "Check that APPLE_CERTIFICATE_P12 contains a valid codesigning certificate."
             exit 1
           fi
           echo "Signing with identity: $IDENTITY"
