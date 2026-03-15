@@ -35,6 +35,18 @@ type RegistryEntry struct {
 func Registry() []RegistryModel {
 	return []RegistryModel{
 		{
+			ID:          "lite-qwen3.5-2b",
+			DisplayName: "Lite Model",
+			Tier:        "lite",
+			URL:         "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q8_0.gguf?download=true",
+			Size:        2_012_012_800,
+			Filename:    "Qwen3.5-2B-Q8_0.gguf",
+			DirName:     "Lite",
+			MmprojURL:   "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/mmproj-BF16.gguf?download=true",
+			MmprojSize:  671_372_992,
+			MmprojName:  "mmproj-BF16.gguf",
+		},
+		{
 			ID:          "standard-qwen3.5-9b",
 			DisplayName: "Standard Model",
 			Tier:        "standard",

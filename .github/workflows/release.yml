@@ -52,6 +52,40 @@ jobs:
       - name: Download Sparkle framework
         run: bash packaging/macos/download-sparkle.sh
 
+      - name: Download llama-server
+        run: |
+          LLAMA_VERSION="b8192"
+          ARCHIVE="llama-${LLAMA_VERSION}-bin-macos-arm64.tar.gz"
+          URL="https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}/${ARCHIVE}"
+
+          echo "Downloading llama-server ${LLAMA_VERSION}..."
+          curl -L --fail -o "${ARCHIVE}" "${URL}"
+
+          mkdir -p bin
+          tar -xzf "${ARCHIVE}" -C bin --strip-components=1
+          chmod +x bin/llama-server
+          rm -f "${ARCHIVE}"
+
+          echo "llama-server installed:"
+          ls -la bin/llama-server bin/*.dylib
+
+      - name: Download Lite model
+        run: |
+          mkdir -p models/Lite
+
+          echo "Downloading Lite model (Qwen3.5-2B-Q8_0, ~2GB)..."
+          curl -L --fail -o models/Lite/Qwen3.5-2B-Q8_0.gguf \
+            "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q8_0.gguf?download=true"
+
+          echo "Downloading mmproj (vision projector, ~671MB)..."
+          curl -L --fail -o models/Lite/mmproj-BF16.gguf \
+            "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/mmproj-BF16.gguf?download=true"
+
+          echo '{"name": "Lite Model"}' > models/Lite/model.json
+
+          echo "Lite model downloaded:"
+          ls -lh models/Lite/
+
       - name: Build macOS distribution
         run: make dist-macos
 

@@ -108,6 +108,13 @@ func NewManager(serverBinaryPath string, modelsDir string, dataDir string) *Mana
 	return m
 }
 
+// HasBinary reports whether the llama-server binary was found on disk.
+func (m *Manager) HasBinary() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.hasBinary
+}
+
 // scanModels finds all model .gguf files in the models directory.
 // It supports two layouts:
 //

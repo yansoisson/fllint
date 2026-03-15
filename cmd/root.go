@@ -50,6 +50,23 @@ func Run(frontendFS fs.FS) {
 	// Initialize LLM manager with real model discovery
 	llmManager := llm.NewManager(serverBinaryPath, cfg.ModelsDir, cfg.DataDir)
 
+	// Auto-load the smallest available model in the background
+	go func() {
+		if !llmManager.HasBinary() {
+			return
+		}
+		models := llmManager.ListModels()
+		if len(models) == 0 {
+			return
+		}
+		// models[0] is the smallest (sorted by size in scanModels)
+		target := models[0]
+		log.Printf("Auto-loading %q...", target.Name)
+		if err := llmManager.SetActive(target.ID); err != nil {
+			log.Printf("Auto-load failed: %v", err)
+		}
+	}()
+
 	// Initialize download manager for in-app model downloads
 	downloadMgr := download.NewManager(cfg.ModelsDir, llmManager)
 
