@@ -102,7 +102,7 @@ func Run(frontendFS fs.FS) {
 	}()
 
 	// Create HTTP server
-	srv, err := server.New(cfg, frontendFS, llmManager, downloadMgr)
+	srv, err := server.New(cfg, frontendFS, llmManager, downloadMgr, appPaths.Translocated)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

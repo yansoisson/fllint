@@ -34,10 +34,11 @@ type Server struct {
 	downloadMgr *download.Manager
 
 	isProduction bool
+	translocated bool // macOS App Translocation — updates unavailable until restart
 }
 
 // New creates a new Server with all routes configured.
-func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, downloadMgr *download.Manager) (*Server, error) {
+func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, downloadMgr *download.Manager, translocated bool) (*Server, error) {
 	chatStore, err := chat.NewStore(cfg.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("init chat store: %w", err)
@@ -57,6 +58,7 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 		queue:        inferenceQueue,
 		downloadMgr:  downloadMgr,
 		isProduction: frontendFS != nil,
+		translocated: translocated,
 	}
 
 	for _, mw := range CommonMiddleware() {
@@ -415,6 +417,12 @@ func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
 	if !updater.HelperExists() {
 		respondErrorJSON(w, http.StatusNotFound, "update_unavailable",
 			"Update helper not found. Updates are not available in this build.")
+		return
+	}
+	if s.translocated {
+		respondErrorJSON(w, http.StatusConflict, "translocated",
+			"Updates are available after restarting the app. "+
+				"Restart Fllint and try again.")
 		return
 	}
 
