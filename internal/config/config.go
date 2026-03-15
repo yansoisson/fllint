@@ -24,7 +24,6 @@ type Config struct {
 
 	// Chat Behavior
 	CustomInstructions string `json:"custom_instructions"`
-	SystemPrompt       string `json:"system_prompt"` // empty = use default
 
 	// Inference Parameters
 	Temperature   float64 `json:"temperature"`
@@ -41,9 +40,16 @@ type Config struct {
 }
 
 var (
-	mu  sync.RWMutex
-	cfg *Config
+	mu                  sync.RWMutex
+	cfg                 *Config
+	legacySystemPrompt  string
 )
+
+// LegacySystemPrompt returns the system_prompt value from a pre-migration config.json,
+// or empty string if none was found.
+func LegacySystemPrompt() string {
+	return legacySystemPrompt
+}
 
 // Default returns the default configuration.
 func Default() Config {
@@ -127,6 +133,14 @@ func Load(dataDir string) (*Config, error) {
 		}
 		return nil, err
 	}
+
+	// Extract legacy system_prompt before unmarshaling into the current struct
+	// (which no longer has that field). This allows migration to the file-based prompt.
+	var legacy struct {
+		SystemPrompt string `json:"system_prompt"`
+	}
+	json.Unmarshal(data, &legacy)
+	legacySystemPrompt = legacy.SystemPrompt
 
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {

@@ -168,7 +168,12 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 
 	// Build messages with system prompt prepended
 	cfg := config.Get()
-	systemContent := prompt.Build(cfg.SystemPrompt, cfg.CustomInstructions)
+	systemPrompt, err := prompt.ReadFromFile(cfg.DataDir)
+	if err != nil {
+		log.Printf("Warning: could not read system prompt file: %v", err)
+		systemPrompt = prompt.DefaultSystemPrompt
+	}
+	systemContent := prompt.Build(systemPrompt, cfg.CustomInstructions)
 
 	var engineMessages []llm.ChatMessage
 	if systemContent != "" {

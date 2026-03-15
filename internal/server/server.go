@@ -85,6 +85,9 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 		r.Put("/config", s.updateConfig)
 		r.Get("/config/system-prompt-default", s.getDefaultSystemPrompt)
 
+		r.Get("/system-prompt", s.getSystemPrompt)
+		r.Put("/system-prompt", s.updateSystemPrompt)
+
 		r.Get("/memory", s.getMemory)
 
 		r.Get("/downloads/registry", s.downloadRegistry)
@@ -266,6 +269,36 @@ func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getDefaultSystemPrompt(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{
 		"prompt": prompt.DefaultSystemPrompt,
+	})
+}
+
+func (s *Server) getSystemPrompt(w http.ResponseWriter, r *http.Request) {
+	content, err := prompt.ReadFromFile(s.cfg.DataDir)
+	if err != nil {
+		respondErrorJSON(w, http.StatusInternalServerError, "prompt_error", "Failed to read system prompt.")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{
+		"prompt":     content,
+		"is_default": content == prompt.DefaultSystemPrompt,
+	})
+}
+
+func (s *Server) updateSystemPrompt(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+	if err := prompt.WriteToFile(s.cfg.DataDir, req.Prompt); err != nil {
+		respondErrorJSON(w, http.StatusInternalServerError, "prompt_error", "Failed to save system prompt.")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{
+		"prompt":     req.Prompt,
+		"is_default": req.Prompt == prompt.DefaultSystemPrompt,
 	})
 }
 

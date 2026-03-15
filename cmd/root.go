@@ -19,6 +19,7 @@ import (
 	"github.com/fllint/fllint/internal/launcher"
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/paths"
+	"github.com/fllint/fllint/internal/prompt"
 	"github.com/fllint/fllint/internal/server"
 )
 
@@ -44,6 +45,21 @@ func Run(frontendFS fs.FS) {
 	os.MkdirAll(cfg.DataDir, 0755)
 	os.MkdirAll(cfg.ModelsDir, 0755)
 	os.MkdirAll(appPaths.BinDir, 0755)
+
+	// Migrate legacy system_prompt from config.json to system-prompt.md
+	if legacy := config.LegacySystemPrompt(); legacy != "" {
+		if err := prompt.MigrateFromConfig(cfg.DataDir, legacy); err != nil {
+			log.Printf("Warning: failed to migrate system prompt: %v", err)
+		}
+		// Re-save config to strip the legacy system_prompt field
+		if err := config.Save(cfg); err != nil {
+			log.Printf("Warning: failed to clean config after prompt migration: %v", err)
+		}
+	}
+	// Ensure system-prompt.md exists (creates with default if missing)
+	if _, err := prompt.ReadFromFile(cfg.DataDir); err != nil {
+		log.Printf("Warning: failed to initialize system prompt file: %v", err)
+	}
 	serverBinaryPath := filepath.Join(appPaths.BinDir, "llama-server")
 
 	// Initialize LLM manager with real model discovery

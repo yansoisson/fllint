@@ -199,6 +199,17 @@ export async function updateConfig(config: Partial<AppConfig>): Promise<AppConfi
 
 // --- System Prompt ---
 
+export async function getSystemPrompt(): Promise<{ prompt: string; is_default: boolean }> {
+	return request('/system-prompt');
+}
+
+export async function updateSystemPrompt(promptText: string): Promise<{ prompt: string; is_default: boolean }> {
+	return request('/system-prompt', {
+		method: 'PUT',
+		body: JSON.stringify({ prompt: promptText })
+	});
+}
+
 export async function getDefaultSystemPrompt(): Promise<string> {
 	const res = await request<{ prompt: string }>('/config/system-prompt-default');
 	return res.prompt;

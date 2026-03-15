@@ -29,6 +29,8 @@
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	let defaultPrompt = $state('');
+	let systemPrompt = $state('');
+	let systemPromptIsDefault = $state(true);
 	let editingModelId = $state<string | null>(null);
 	let editingName = $state('');
 	let deleteModelConfirm = $state<string | null>(null);
@@ -174,6 +176,9 @@
 			config = await api.getConfig();
 			await Promise.all([loadModels(), loadStatus(), loadDownloadRegistry()]);
 			try {
+				const sp = await api.getSystemPrompt();
+				systemPrompt = sp.prompt;
+				systemPromptIsDefault = sp.is_default;
 				defaultPrompt = await api.getDefaultSystemPrompt();
 			} catch {
 				defaultPrompt = '';
@@ -197,6 +202,8 @@
 		saving = true;
 		error = null;
 		try {
+			const spResult = await api.updateSystemPrompt(systemPrompt);
+			systemPromptIsDefault = spResult.is_default;
 			config = await api.updateConfig(config);
 			showNotification('Settings saved.', 'info');
 		} catch (err) {
@@ -246,14 +253,6 @@
 		return mb.toFixed(0) + ' MB';
 	}
 
-	function tierLabel(tier: string): string {
-		switch (tier) {
-			case 'lite': return 'Lite';
-			case 'standard': return 'Standard';
-			case 'pro': return 'Pro';
-			default: return 'Custom';
-		}
-	}
 
 	function findActiveDownload(registryId: string): DownloadStatus | undefined {
 		return downloads.find(
@@ -340,8 +339,8 @@
 	}
 
 	function resetSystemPrompt() {
-		if (!config) return;
-		config.system_prompt = '';
+		systemPrompt = defaultPrompt;
+		systemPromptIsDefault = true;
 	}
 
 	function closeSettingsNav() {
@@ -604,7 +603,6 @@
 											<div class="model-info">
 												<div class="model-name-row">
 													<span class="model-name">{model.display_name}</span>
-													<span class="badge tier-badge tier-{model.tier}">{tierLabel(model.tier)}</span>
 												</div>
 												<div class="model-meta">
 													<span>{formatSize(model.size + (model.mmproj_size ?? 0))}</span>
@@ -684,7 +682,6 @@
 												{:else}
 													<div class="model-name-row">
 														<span class="model-name">{model.name}</span>
-														<span class="badge tier-badge tier-{model.tier}">{tierLabel(model.tier)}</span>
 														{#if model.vision}
 															<span class="badge vision-badge" title="Supports image input">Vision</span>
 														{/if}
@@ -749,7 +746,6 @@
 													{:else}
 														<div class="model-name-row">
 															<span class="model-name">{model.name}</span>
-															<span class="badge tier-badge tier-{model.tier}">{tierLabel(model.tier)}</span>
 															{#if model.vision}
 																<span class="badge vision-badge" title="Supports image input">Vision</span>
 															{/if}
@@ -811,15 +807,16 @@
 						<section class="section">
 							<h4 class="section-title">
 								System Prompt
-								{#if config.system_prompt}
+								{#if !systemPromptIsDefault}
 									<span class="modified-badge">Modified</span>
 								{/if}
 							</h4>
 							<textarea
 								class="textarea system-prompt-textarea"
 								rows="6"
-								bind:value={config.system_prompt}
+								bind:value={systemPrompt}
 								placeholder={defaultPrompt}
+								oninput={() => { systemPromptIsDefault = systemPrompt === defaultPrompt; }}
 							></textarea>
 							<div class="button-row" style="margin-top: 8px;">
 								<button class="small-btn muted" onclick={resetSystemPrompt}>
@@ -1283,41 +1280,6 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
-	}
-
-	.tier-badge {
-		background: var(--bg-tertiary);
-		color: var(--text-muted);
-	}
-
-	.tier-lite {
-		background: #dbeafe;
-		color: #1e40af;
-	}
-
-	.tier-standard {
-		background: #d1fae5;
-		color: #065f46;
-	}
-
-	.tier-pro {
-		background: #ede9fe;
-		color: #5b21b6;
-	}
-
-	:global([data-theme='dark']) .tier-lite {
-		background: #1e3a5f;
-		color: #93c5fd;
-	}
-
-	:global([data-theme='dark']) .tier-standard {
-		background: #064e3b;
-		color: #6ee7b7;
-	}
-
-	:global([data-theme='dark']) .tier-pro {
-		background: #3b0764;
-		color: #c4b5fd;
 	}
 
 	.active-badge {

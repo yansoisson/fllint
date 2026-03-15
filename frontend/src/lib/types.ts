@@ -33,7 +33,6 @@ export interface AppConfig {
 	theme: 'light' | 'dark' | 'system';
 	pro_mode: boolean;
 	custom_instructions: string;
-	system_prompt: string;
 	temperature: number;
 	top_p: number;
 	top_k: number;
