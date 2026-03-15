@@ -110,6 +110,11 @@ func detectDarwinBundle() (AppPaths, bool) {
 
 // parseDarwinBundle resolves paths from a macOS .app executable path.
 // Separated from detectDarwinBundle for testability.
+//
+// Handles macOS App Translocation: when a quarantined app is launched,
+// macOS copies the .app to a temporary read-only path. The binary and
+// resources inside the .app are accessible at the translocated path,
+// but the Data/ folder remains at the original location on disk.
 func parseDarwinBundle(exePath string) (AppPaths, bool) {
 	if !strings.Contains(exePath, ".app/Contents/MacOS/") {
 		return AppPaths{}, false
@@ -119,10 +124,23 @@ func parseDarwinBundle(exePath string) (AppPaths, bool) {
 	macosDir := filepath.Dir(exePath)     // .../Fllint.app/Contents/MacOS
 	contentsDir := filepath.Dir(macosDir) // .../Fllint.app/Contents
 	appDir := filepath.Dir(contentsDir)   // .../Fllint.app
-	bundleRoot := filepath.Dir(appDir)    // .../Fllint
+
+	// BinDir always uses the current (possibly translocated) path,
+	// since the binaries are inside the .app and accessible there.
+	binDir := filepath.Join(contentsDir, "Resources", "bin")
+
+	// For DataDir, resolve the original path if the app is translocated.
+	// The Data/ folder lives alongside the .app on disk, not inside it,
+	// so it won't exist at the translocated temporary path.
+	dataAppDir := appDir
+	if original := resolveTranslocatedPath(appDir); original != "" {
+		log.Printf("App Translocation detected: data resolved to %s", filepath.Dir(original))
+		dataAppDir = original
+	}
+	bundleRoot := filepath.Dir(dataAppDir)
 
 	return AppPaths{
-		BinDir:    filepath.Join(contentsDir, "Resources", "bin"),
+		BinDir:    binDir,
 		DataDir:   filepath.Join(bundleRoot, "Data"),
 		ModelsDir: filepath.Join(bundleRoot, "Data", "models"),
 	}, true
