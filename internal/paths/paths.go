@@ -3,6 +3,7 @@ package paths
 import (
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -139,6 +140,16 @@ func parseDarwinBundle(exePath string) (AppPaths, bool) {
 		log.Printf("App Translocation detected: data resolved to %s", filepath.Dir(original))
 		dataAppDir = original
 		translocated = true
+
+		// Remove the quarantine flag from the original .app so that future
+		// launches run from the real location (no translocation, Sparkle works).
+		go func() {
+			if err := exec.Command("xattr", "-dr", "com.apple.quarantine", original).Run(); err != nil {
+				log.Printf("Could not remove quarantine flag: %v", err)
+			} else {
+				log.Printf("Quarantine flag removed — next launch will run normally")
+			}
+		}()
 	}
 	bundleRoot := filepath.Dir(dataAppDir)
 
