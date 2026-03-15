@@ -13,7 +13,8 @@
 		openSettingsToTab,
 		isDownloadActive,
 		getActiveDownloadsState,
-		startDownloadPolling
+		startDownloadPolling,
+		startModelDownload
 	} from '$lib/stores.svelte';
 
 	let chatContainer: HTMLDivElement;
@@ -98,11 +99,16 @@
 					</div>
 				{/if}
 			{:else if !getEngineStatus()?.has_models}
-				<h2>Download a model to get started</h2>
-				<p>Your setup is ready — just pick a model to download.</p>
-				<button class="refresh-btn" onclick={() => openSettingsToTab('models')}>
-					Browse Models
-				</button>
+				<h2>Welcome to Fllint</h2>
+				<p>Download a local model to get started, or connect an external provider.</p>
+				<div class="welcome-actions">
+					<button class="refresh-btn" onclick={() => { startModelDownload('lite-qwen3.5-2b'); startDownloadPolling(); }}>
+						Download Lite Model
+					</button>
+					<button class="refresh-btn secondary" onclick={() => openSettingsToTab('models')}>
+						Browse All Models
+					</button>
+				</div>
 				<p class="manual-hint">
 					Or place a .gguf file in the <code>models/</code> folder manually.
 					<button class="link-btn" onclick={refreshModels}>Refresh</button>
@@ -209,6 +215,22 @@
 
 	.refresh-btn:hover {
 		background: var(--accent-hover);
+	}
+
+	.refresh-btn.secondary {
+		background: transparent;
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+	}
+
+	.refresh-btn.secondary:hover {
+		background: var(--bg-hover);
+	}
+
+	.welcome-actions {
+		display: flex;
+		gap: 10px;
+		margin-top: 12px;
 	}
 
 	.spinner {

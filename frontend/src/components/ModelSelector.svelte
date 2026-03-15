@@ -4,7 +4,8 @@
 		getEffectiveModelId,
 		selectModelForTab,
 		getEngineStatus,
-		getPinnedModelIds
+		getPinnedModelIds,
+		getProviders
 	} from '$lib/stores.svelte';
 	import type { ModelInfo, EngineStatusInfo } from '$lib/types';
 
@@ -49,6 +50,21 @@
 	let otherModels = $derived(models.filter((m) => !effectivePinnedIds.includes(m.id)));
 
 	let currentModel = $derived(models.find((m) => m.id === effectiveModelId) ?? null);
+	let providersList = $derived(getProviders());
+
+	// Build a lookup for provider names by ID
+	let providerMap = $derived.by(() => {
+		const map: Record<string, string> = {};
+		for (const p of providersList) {
+			map[p.id] = p.name;
+		}
+		return map;
+	});
+
+	function getProviderName(model: ModelInfo): string | null {
+		if (!model.external || !model.provider_id) return null;
+		return providerMap[model.provider_id] ?? null;
+	}
 
 	function formatSize(bytes?: number): string {
 		if (!bytes) return '';
@@ -97,7 +113,9 @@
 <div class="model-selector-wrapper">
 	<button class="selector-trigger" bind:this={triggerEl} onclick={toggle}>
 		{#if currentModel}
-			{#if currentModel.loaded}
+			{#if currentModel.external}
+				<span class="external-dot"></span>
+			{:else if currentModel.loaded}
 				<span class="loaded-dot"></span>
 			{/if}
 			<span class="trigger-label">{currentModel.name}</span>
@@ -119,6 +137,7 @@
 				{@const starting = isModelStarting(model.id)}
 				{@const progress = getModelProgress(model.id)}
 				{@const isSelected = model.id === effectiveModelId}
+				{@const provName = getProviderName(model)}
 				<button
 					class="model-option"
 					class:selected={isSelected}
@@ -126,7 +145,9 @@
 				>
 					<div class="option-left">
 						<span class="status-indicator">
-							{#if starting}
+							{#if model.external}
+								<span class="external-dot"></span>
+							{:else if starting}
 								<span class="loading-spinner"></span>
 							{:else if model.loaded}
 								<span class="loaded-dot"></span>
@@ -134,7 +155,9 @@
 						</span>
 						<div class="option-text">
 							<span class="option-name">{model.name}</span>
-							{#if model.size}
+							{#if provName}
+								<span class="option-size">{provName}</span>
+							{:else if model.size}
 								<span class="option-size">{formatSize(model.size)}</span>
 							{/if}
 						</div>
@@ -165,6 +188,7 @@
 						{@const starting = isModelStarting(model.id)}
 						{@const progress = getModelProgress(model.id)}
 						{@const isSelected = model.id === effectiveModelId}
+						{@const provName = getProviderName(model)}
 						<button
 							class="model-option other"
 							class:selected={isSelected}
@@ -172,7 +196,9 @@
 						>
 							<div class="option-left">
 								<span class="status-indicator">
-									{#if starting}
+									{#if model.external}
+										<span class="external-dot"></span>
+									{:else if starting}
 										<span class="loading-spinner"></span>
 									{:else if model.loaded}
 										<span class="loaded-dot"></span>
@@ -180,7 +206,9 @@
 								</span>
 								<div class="option-text">
 									<span class="option-name">{model.name}</span>
-									{#if model.size}
+									{#if provName}
+										<span class="option-size">{provName}</span>
+									{:else if model.size}
 										<span class="option-size">{formatSize(model.size)}</span>
 									{/if}
 								</div>
@@ -324,6 +352,14 @@
 		height: 7px;
 		border-radius: 50%;
 		background: var(--accent);
+		flex-shrink: 0;
+	}
+
+	.external-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: #f59e0b;
 		flex-shrink: 0;
 	}
 

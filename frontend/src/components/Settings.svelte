@@ -17,10 +17,12 @@
 		startModelDownload,
 		cancelModelDownload,
 		loadDownloadRegistry,
-		getSettingsInitialTab
+		getSettingsInitialTab,
+		loadProviders,
+		getProviders
 	} from '$lib/stores.svelte';
 	import * as api from '$lib/api';
-	import type { AppConfig, ModelInfo, DownloadStatus } from '$lib/types';
+	import type { AppConfig, ModelInfo, DownloadStatus, Provider, ProviderTypeInfo, ProviderModel, SelectedModel } from '$lib/types';
 
 	type SettingsTab = 'general' | 'models' | 'advanced';
 
@@ -42,6 +44,185 @@
 	let activeTab = $state<SettingsTab>('general');
 	let appVersion = $state<string | null>(null);
 	let checkingUpdate = $state(false);
+
+	// --- Provider state ---
+	let providerTypes = $state<ProviderTypeInfo[]>([]);
+	let addingProvider = $state(false);
+	let editingProviderId = $state<string | null>(null);
+	let providerForm = $state({
+		name: '',
+		type: 'ollama-local',
+		base_url: 'http://localhost:11434',
+		api_key: '',
+		enabled: true
+	});
+	let testingConnection = $state(false);
+	let testResult = $state<'success' | 'error' | null>(null);
+	let testError = $state<string | null>(null);
+	let fetchingModels = $state<string | null>(null); // provider ID being fetched
+	let availableModels = $state<ProviderModel[]>([]);
+	let selectedModelNames = $state<Set<string>>(new Set());
+	let savingModels = $state(false);
+	let deletingProviderId = $state<string | null>(null);
+	let managingModelsId = $state<string | null>(null);
+
+	let allProviders = $derived(getProviders());
+
+	function getProviderTypeInfo(type: string): ProviderTypeInfo | undefined {
+		return providerTypes.find((t) => t.type === type);
+	}
+
+	function resetProviderForm() {
+		providerForm = { name: '', type: 'ollama-local', base_url: 'http://localhost:11434', api_key: '', enabled: true };
+		testResult = null;
+		testError = null;
+		addingProvider = false;
+		editingProviderId = null;
+	}
+
+	function startAddProvider() {
+		resetProviderForm();
+		addingProvider = true;
+	}
+
+	function startEditProvider(p: Provider) {
+		editingProviderId = p.id;
+		providerForm = {
+			name: p.name,
+			type: p.type,
+			base_url: p.base_url,
+			api_key: '',
+			enabled: p.enabled
+		};
+		testResult = null;
+		testError = null;
+		addingProvider = false;
+	}
+
+	function handleProviderTypeChange() {
+		const info = getProviderTypeInfo(providerForm.type);
+		if (info?.default_url) {
+			providerForm.base_url = info.default_url;
+		}
+	}
+
+	async function saveProvider() {
+		try {
+			if (editingProviderId) {
+				await api.updateProvider(editingProviderId, {
+					name: providerForm.name,
+					type: providerForm.type,
+					base_url: providerForm.base_url,
+					api_key: providerForm.api_key || undefined,
+					enabled: providerForm.enabled
+				});
+			} else {
+				await api.createProvider({
+					name: providerForm.name,
+					type: providerForm.type,
+					base_url: providerForm.base_url,
+					api_key: providerForm.api_key || undefined,
+					enabled: providerForm.enabled
+				});
+			}
+			resetProviderForm();
+			await Promise.all([loadProviders(), loadModels()]);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : 'Failed to save provider.';
+			showNotification(msg, 'error');
+		}
+	}
+
+	async function deleteProvider(id: string) {
+		if (deletingProviderId !== id) {
+			deletingProviderId = id;
+			return;
+		}
+		try {
+			await api.deleteProvider(id);
+			deletingProviderId = null;
+			if (managingModelsId === id) managingModelsId = null;
+			await Promise.all([loadProviders(), loadModels()]);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : 'Failed to delete provider.';
+			showNotification(msg, 'error');
+			deletingProviderId = null;
+		}
+	}
+
+	async function testProviderConnection(id: string) {
+		testingConnection = true;
+		testResult = null;
+		testError = null;
+		try {
+			await api.testProvider(id);
+			testResult = 'success';
+		} catch (err) {
+			testResult = 'error';
+			testError = err instanceof Error ? err.message : 'Connection failed.';
+		} finally {
+			testingConnection = false;
+		}
+	}
+
+	async function toggleManageModels(p: Provider) {
+		if (managingModelsId === p.id) {
+			managingModelsId = null;
+			return;
+		}
+		managingModelsId = p.id;
+		fetchingModels = p.id;
+		selectedModelNames = new Set(p.models.map((m) => m.name));
+		try {
+			availableModels = await api.fetchProviderModels(p.id);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : 'Failed to fetch models.';
+			showNotification(msg, 'error');
+			availableModels = [];
+		} finally {
+			fetchingModels = null;
+		}
+	}
+
+	function toggleModelSelection(name: string) {
+		const next = new Set(selectedModelNames);
+		if (next.has(name)) {
+			next.delete(name);
+		} else {
+			next.add(name);
+		}
+		selectedModelNames = next;
+	}
+
+	async function saveProviderModels(providerId: string) {
+		savingModels = true;
+		try {
+			const models: SelectedModel[] = [...selectedModelNames].map((name) => ({ name }));
+			await api.saveProviderModels(providerId, models);
+			await Promise.all([loadProviders(), loadModels()]);
+			managingModelsId = null;
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : 'Failed to save models.';
+			showNotification(msg, 'error');
+		} finally {
+			savingModels = false;
+		}
+	}
+
+	async function toggleProviderEnabled(p: Provider) {
+		try {
+			await api.updateProvider(p.id, {
+				name: p.name,
+				type: p.type,
+				base_url: p.base_url,
+				enabled: !p.enabled
+			});
+			await Promise.all([loadProviders(), loadModels()]);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : 'Failed to update provider.';
+			showNotification(msg, 'error');
+		}
+	}
 
 	// Loaded models derived from model list
 	let loadedModels = $derived(getModels().filter((m) => m.loaded));
@@ -95,6 +276,22 @@
 			config = c;
 			syncConfig(c);
 		});
+	}
+
+	async function setDefaultModel(modelId: string) {
+		if (!config) return;
+		config.default_model_id = modelId;
+		try {
+			config = await api.updateConfig(config);
+			syncConfig(config);
+			// Also set it as the active model in the manager
+			await api.setActiveModel(modelId);
+			await Promise.all([loadModels(), loadStatus()]);
+			showNotification('Default model updated.', 'info');
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : 'Failed to set default model.';
+			showNotification(msg, 'error');
+		}
 	}
 
 	async function handleUnload(modelId: string) {
@@ -174,7 +371,10 @@
 		error = null;
 		try {
 			config = await api.getConfig();
-			await Promise.all([loadModels(), loadStatus(), loadDownloadRegistry()]);
+			await Promise.all([loadModels(), loadStatus(), loadDownloadRegistry(), loadProviders()]);
+			try {
+				providerTypes = await api.listProviderTypes();
+			} catch { providerTypes = []; }
 			try {
 				const sp = await api.getSystemPrompt();
 				systemPrompt = sp.prompt;
@@ -558,9 +758,13 @@
 										<div class="model-item loaded-item">
 											<div class="model-info">
 												<div class="model-name-row">
-													<span class="loaded-dot-settings"></span>
+													{#if model.external}
+														<span class="external-dot-settings"></span>
+													{:else}
+														<span class="loaded-dot-settings"></span>
+													{/if}
 													<span class="model-name">{model.name}</span>
-													{#if model.active}
+													{#if model.active || config?.default_model_id === model.id}
 														<span class="badge active-badge">Default</span>
 													{/if}
 													{#if isModelStarting(model.id)}
@@ -576,19 +780,43 @@
 												</div>
 											</div>
 											<div class="model-actions">
-												<button
-													class="small-btn unload-btn"
-													onclick={() => handleUnload(model.id)}
-													disabled={unloadingModelId === model.id}
-												>
-													{unloadingModelId === model.id ? 'Unloading...' : 'Unload'}
-												</button>
+												{#if !model.active && config?.default_model_id !== model.id}
+													<button
+														class="small-btn"
+														onclick={() => setDefaultModel(model.id)}
+													>
+														Set Default
+													</button>
+												{/if}
+												{#if !model.external}
+													<button
+														class="small-btn unload-btn"
+														onclick={() => handleUnload(model.id)}
+														disabled={unloadingModelId === model.id}
+													>
+														{unloadingModelId === model.id ? 'Unloading...' : 'Unload'}
+													</button>
+												{/if}
 											</div>
 										</div>
 									{/each}
 								</div>
 							</section>
 						{/if}
+
+						<!-- ==================== DEFAULT MODEL ==================== -->
+						<section class="section">
+							<h4 class="section-title">Default Model</h4>
+							<p class="field-desc">The model loaded automatically when Fllint starts.</p>
+							<select class="select" value={config?.default_model_id || ''} onchange={(e) => setDefaultModel(e.currentTarget.value)}>
+								<option value="">Auto (smallest local model)</option>
+								{#each getModels() as model (model.id)}
+									<option value={model.id}>
+										{model.name}{model.external ? ' (external)' : ''}
+									</option>
+								{/each}
+							</select>
+						</section>
 
 						<!-- ==================== GET MODELS ==================== -->
 						{#if registryModels.length > 0}
@@ -638,6 +866,159 @@
 								</div>
 							</section>
 						{/if}
+
+						<!-- ==================== MODEL PROVIDERS ==================== -->
+						<section class="section">
+							<h4 class="section-title">Model Providers</h4>
+							<p class="field-desc">Connect to external model servers like Ollama.</p>
+
+							{#each allProviders as prov (prov.id)}
+								<div class="provider-card">
+									<div class="provider-header">
+										<div class="provider-info">
+											<span class="external-dot-settings"></span>
+											<div>
+												<span class="provider-name">{prov.name}</span>
+												<span class="provider-url">{prov.base_url}</span>
+											</div>
+										</div>
+										<div class="provider-actions">
+											<button
+												class="toggle small-toggle"
+												class:on={prov.enabled}
+												onclick={() => toggleProviderEnabled(prov)}
+												role="switch"
+												aria-checked={prov.enabled}
+												title={prov.enabled ? 'Disable' : 'Enable'}
+											>
+												<span class="toggle-knob"></span>
+											</button>
+											<button class="small-btn muted" onclick={() => startEditProvider(prov)}>Edit</button>
+											<button
+												class="small-btn danger-text"
+												onclick={() => deleteProvider(prov.id)}
+											>
+												{deletingProviderId === prov.id ? 'Confirm?' : 'Delete'}
+											</button>
+										</div>
+									</div>
+									<div class="provider-meta">
+										<span>{prov.models.length} model{prov.models.length !== 1 ? 's' : ''} selected</span>
+										<button class="small-btn" onclick={() => toggleManageModels(prov)}>
+											{managingModelsId === prov.id ? 'Hide Models' : 'Manage Models'}
+										</button>
+									</div>
+
+									{#if managingModelsId === prov.id}
+										<div class="provider-models">
+											{#if fetchingModels === prov.id}
+												<p class="field-desc">Fetching models...</p>
+											{:else if availableModels.length === 0}
+												<p class="field-desc">No models found on this server.</p>
+											{:else}
+												<div class="model-checklist">
+													{#each availableModels as m (m.name)}
+														<label class="model-check-item">
+															<input
+																type="checkbox"
+																checked={selectedModelNames.has(m.name)}
+																onchange={() => toggleModelSelection(m.name)}
+															/>
+															<span class="model-check-name">{m.name}</span>
+															{#if m.details?.parameter_size}
+																<span class="model-check-size">{m.details.parameter_size}</span>
+															{/if}
+														</label>
+													{/each}
+												</div>
+												<p class="field-desc" style="margin-top: 8px;">Not all models support image input. Images attached to models without vision support will be silently ignored by the server.</p>
+												<button
+													class="secondary-btn"
+													onclick={() => saveProviderModels(prov.id)}
+													disabled={savingModels}
+													style="margin-top: 8px;"
+												>
+													{savingModels ? 'Saving...' : 'Save Selection'}
+												</button>
+											{/if}
+										</div>
+									{/if}
+								</div>
+							{/each}
+
+							{#if editingProviderId}
+								{@const editProv = allProviders.find((p) => p.id === editingProviderId)}
+								{@const typeInfo = getProviderTypeInfo(providerForm.type)}
+								<div class="provider-form">
+									<h5 class="form-title">Edit Provider</h5>
+									<div class="field">
+										<span class="field-label">Name</span>
+										<input class="text-input" bind:value={providerForm.name} placeholder="My Ollama" />
+									</div>
+									<div class="field">
+										<span class="field-label">URL</span>
+										<input class="text-input" bind:value={providerForm.base_url} placeholder="http://localhost:11434" />
+									</div>
+									{#if typeInfo?.requires_key}
+										<div class="field">
+											<span class="field-label">API Key</span>
+											<input class="text-input" type="password" bind:value={providerForm.api_key} placeholder={editProv?.has_api_key ? '(unchanged)' : 'Enter API key'} />
+											<p class="field-desc warning-text">API keys are stored unencrypted in your Fllint Data folder. Use unique keys with spending limits. Only trusted users should access the Fllint folder.</p>
+										</div>
+									{/if}
+									{#if testResult === 'success'}
+										<p class="success-text">Connection successful.</p>
+									{:else if testResult === 'error'}
+										<p class="error-text-small">{testError}</p>
+									{/if}
+									<div class="button-row">
+										{#if editProv}
+											<button class="secondary-btn" onclick={() => testProviderConnection(editProv.id)} disabled={testingConnection}>
+												{testingConnection ? 'Testing...' : 'Test Connection'}
+											</button>
+										{/if}
+										<button class="secondary-btn" onclick={saveProvider}>Save</button>
+										<button class="small-btn muted" onclick={resetProviderForm}>Cancel</button>
+									</div>
+								</div>
+							{:else if addingProvider}
+								{@const typeInfo = getProviderTypeInfo(providerForm.type)}
+								<div class="provider-form">
+									<h5 class="form-title">Add Provider</h5>
+									<div class="field">
+										<span class="field-label">Type</span>
+										<select class="select" bind:value={providerForm.type} onchange={handleProviderTypeChange}>
+											{#each providerTypes as pt (pt.type)}
+												<option value={pt.type}>{pt.label}</option>
+											{/each}
+										</select>
+									</div>
+									<div class="field">
+										<span class="field-label">Name</span>
+										<input class="text-input" bind:value={providerForm.name} placeholder="My Ollama" />
+									</div>
+									<div class="field">
+										<span class="field-label">URL</span>
+										<input class="text-input" bind:value={providerForm.base_url} placeholder="http://localhost:11434" />
+									</div>
+									{#if typeInfo?.requires_key}
+										<div class="field">
+											<span class="field-label">API Key</span>
+											<input class="text-input" type="password" bind:value={providerForm.api_key} placeholder="Enter API key" />
+											<p class="field-desc warning-text">API keys are stored unencrypted in your Fllint Data folder. Use unique keys with spending limits. Only trusted users should access the Fllint folder.</p>
+										</div>
+									{/if}
+									<div class="button-row">
+										<button class="secondary-btn" onclick={saveProvider}>Save</button>
+										<button class="small-btn muted" onclick={resetProviderForm}>Cancel</button>
+									</div>
+								</div>
+							{:else}
+								<button class="secondary-btn" onclick={startAddProvider} style="margin-top: 8px;">
+									+ Add Provider
+								</button>
+							{/if}
+						</section>
 
 						<!-- ==================== MODEL SELECTOR ORDER ==================== -->
 						<section class="section">
@@ -874,6 +1255,28 @@
 								<button class="secondary-btn" onclick={resetInferenceDefaults}>
 									Reset to Defaults
 								</button>
+							</div>
+						</section>
+
+						<!-- ==================== FORWARD PARAMS TO EXTERNAL ==================== -->
+						<section class="section">
+							<div class="field">
+								<div class="toggle-row">
+									<div>
+										<span class="field-label">Forward to External Models</span>
+										<p class="field-desc">Send these inference parameters to external model providers too. When off, external servers use their own defaults.</p>
+									</div>
+									<button
+										class="toggle"
+										class:on={config.forward_params_to_external}
+										onclick={() => { if (config) config.forward_params_to_external = !config.forward_params_to_external; }}
+										role="switch"
+										aria-checked={config.forward_params_to_external}
+										aria-label="Forward inference params to external models"
+									>
+										<span class="toggle-knob"></span>
+									</button>
+								</div>
 							</div>
 						</section>
 
@@ -1691,5 +2094,148 @@
 	.download-btn {
 		padding: 5px 12px;
 		font-size: 0.8rem;
+	}
+
+	/* --- Provider styles --- */
+
+	.provider-card {
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 12px;
+		margin-top: 8px;
+	}
+
+	.provider-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
+	.provider-info {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+	}
+
+	.external-dot-settings {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: #f59e0b;
+		flex-shrink: 0;
+	}
+
+	.provider-name {
+		font-weight: 500;
+		font-size: 0.875rem;
+		color: var(--text-primary);
+	}
+
+	.provider-url {
+		display: block;
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+
+	.provider-actions {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-shrink: 0;
+	}
+
+	.small-toggle {
+		transform: scale(0.75);
+		margin: 0;
+	}
+
+	.provider-meta {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-top: 8px;
+		font-size: 0.8rem;
+		color: var(--text-muted);
+	}
+
+	.provider-models {
+		margin-top: 8px;
+		padding-top: 8px;
+		border-top: 1px solid var(--border-light);
+	}
+
+	.model-checklist {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.model-check-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 8px;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.85rem;
+	}
+
+	.model-check-item:hover {
+		background: var(--bg-hover);
+	}
+
+	.model-check-name {
+		color: var(--text-primary);
+		font-weight: 500;
+	}
+
+	.model-check-size {
+		color: var(--text-muted);
+		font-size: 0.75rem;
+	}
+
+	.provider-form {
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 16px;
+		margin-top: 12px;
+		background: var(--bg-secondary);
+	}
+
+	.form-title {
+		font-size: 0.9rem;
+		font-weight: 600;
+		margin-bottom: 12px;
+		color: var(--text-primary);
+	}
+
+	.text-input {
+		width: 100%;
+		padding: 8px 12px;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		font-size: 0.85rem;
+		outline: none;
+		transition: border-color var(--transition);
+	}
+
+	.text-input:focus {
+		border-color: var(--accent);
+	}
+
+	.warning-text {
+		color: #f59e0b;
+		font-size: 0.75rem;
+		margin-top: 4px;
+	}
+
+	.success-text {
+		color: var(--accent);
+		font-size: 0.85rem;
+		margin-bottom: 8px;
 	}
 </style>

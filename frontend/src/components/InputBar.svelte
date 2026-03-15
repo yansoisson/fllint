@@ -15,6 +15,10 @@
 	}
 
 	let modelLoading = $derived(isEffectiveModelLoading());
+	let canAttachImage = $derived.by(() => {
+		const m = getModels().find((m) => m.id === getEffectiveModelId());
+		return m?.vision || m?.external;
+	});
 
 	async function handleSubmit() {
 		const text = inputText.trim();
@@ -98,7 +102,7 @@
 		{/if}
 		<ImagePreview />
 		<div class="input-row">
-			{#if getModels().find((m) => m.id === getEffectiveModelId())?.vision}
+			{#if canAttachImage}
 				<button class="attach-btn" onclick={() => fileInput.click()} title="Attach image" aria-label="Attach image">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<line x1="12" y1="5" x2="12" y2="19" />

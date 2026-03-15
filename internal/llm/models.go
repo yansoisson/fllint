@@ -16,6 +16,7 @@ const (
 	TierStandard Tier = "standard"
 	TierPro      Tier = "pro"
 	TierCustom   Tier = "custom"
+	TierExternal Tier = "external"
 )
 
 // ModelInfo describes a model available to the application.
@@ -27,8 +28,10 @@ type ModelInfo struct {
 	MmprojPath string `json:"mmproj_path,omitempty"` // path to vision projector file
 	Size       int64  `json:"size,omitempty"`
 	Active     bool   `json:"active"`
-	Loaded     bool   `json:"loaded"` // true if engine is currently running
-	Vision     bool   `json:"vision"` // true if mmproj file is available
+	Loaded     bool   `json:"loaded"`                // true if engine is currently running
+	Vision     bool   `json:"vision"`                // true if mmproj file is available
+	External   bool   `json:"external"`              // true for models from external providers
+	ProviderID string `json:"provider_id,omitempty"` // which provider this comes from
 }
 
 // modelNameFromFilename derives a human-readable name from a GGUF filename.

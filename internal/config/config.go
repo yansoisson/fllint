@@ -20,7 +20,8 @@ type Config struct {
 	ProMode bool   `json:"pro_mode"`
 
 	// Model Selector
-	PinnedModels []string `json:"pinned_models"` // model IDs shown in main selector (ordered)
+	PinnedModels   []string `json:"pinned_models"`             // model IDs shown in main selector (ordered)
+	DefaultModelID string   `json:"default_model_id,omitempty"` // model to load on startup
 
 	// Chat Behavior
 	CustomInstructions string `json:"custom_instructions"`
@@ -37,6 +38,9 @@ type Config struct {
 	CtxSize    int    `json:"ctx_size"`
 	NGPULayers int    `json:"n_gpu_layers"` // 999 = auto
 	FlashAttn  string `json:"flash_attn"`   // "auto", "on", "off"
+
+	// External Models
+	ForwardParamsToExternal bool `json:"forward_params_to_external"` // send inference params to external providers
 }
 
 var (

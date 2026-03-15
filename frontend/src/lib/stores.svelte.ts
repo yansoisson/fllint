@@ -1,4 +1,4 @@
-import type { Conversation, ChatMessage, ModelInfo, EngineStatus, MemoryInfo, MemoryErrorInfo, RegistryModel, DownloadStatus } from './types';
+import type { Conversation, ChatMessage, ModelInfo, EngineStatus, MemoryInfo, MemoryErrorInfo, RegistryModel, DownloadStatus, Provider } from './types';
 import { goto } from '$app/navigation';
 import * as api from './api';
 import { InsufficientMemoryError } from './api';
@@ -65,6 +65,9 @@ let notificationTimeout: ReturnType<typeof setTimeout> | null = null;
 let downloadRegistry = $state<RegistryModel[]>([]);
 let activeDownloads = $state<DownloadStatus[]>([]);
 let downloadPollTimer: ReturnType<typeof setInterval> | null = null;
+
+// --- Providers ---
+let providers = $state<Provider[]>([]);
 
 // --- Settings Navigation ---
 type SettingsTab = 'general' | 'models' | 'advanced';
@@ -167,6 +170,9 @@ export function isDownloadActive(): boolean {
 }
 export function getSettingsInitialTab() {
 	return settingsInitialTab;
+}
+export function getProviders() {
+	return providers;
 }
 
 /** Check if the effective model for this tab is currently loading (not ready for inference). */
@@ -319,7 +325,8 @@ export async function initApp() {
 			api.getConfig(),
 			api.fetchMemory(),
 			api.getDownloadRegistry(),
-			api.getActiveDownloads()
+			api.getActiveDownloads(),
+			api.listProviders()
 		]);
 
 		// Populate whatever succeeded, even if some calls failed/hung
@@ -335,6 +342,7 @@ export async function initApp() {
 		if (results[4].status === 'fulfilled') memoryInfo = results[4].value;
 		if (results[5].status === 'fulfilled') downloadRegistry = results[5].value;
 		if (results[6].status === 'fulfilled') activeDownloads = results[6].value;
+		if (results[7].status === 'fulfilled') providers = results[7].value;
 
 		const allOk = results.every((r) => r.status === 'fulfilled');
 		if (allOk) {
@@ -673,6 +681,12 @@ export async function unloadModel(modelId: string) {
 /** Load a model for the current tab without changing the global default. */
 export async function selectModelForTab(modelId: string) {
 	tabModelId = modelId;
+
+	// External models are always ready — no loading needed
+	if (modelId.startsWith('ext:')) {
+		return;
+	}
+
 	try {
 		await api.loadModel(modelId);
 		await Promise.all([loadModels(), loadStatus(), loadMemory()]);
@@ -856,6 +870,16 @@ export function stopDownloadPolling() {
 	if (downloadPollTimer) {
 		clearInterval(downloadPollTimer);
 		downloadPollTimer = null;
+	}
+}
+
+// --- Providers ---
+
+export async function loadProviders() {
+	try {
+		providers = await api.listProviders();
+	} catch (err) {
+		console.error('Failed to load providers:', err);
 	}
 }
 

@@ -18,12 +18,14 @@ export interface Conversation {
 export interface ModelInfo {
 	id: string;
 	name: string;
-	tier: 'lite' | 'standard' | 'pro' | 'custom';
+	tier: 'lite' | 'standard' | 'pro' | 'custom' | 'external';
 	file_path?: string;
 	size?: number;
 	active: boolean;
 	loaded: boolean;
 	vision: boolean;
+	external: boolean;
+	provider_id?: string;
 }
 
 export interface AppConfig {
@@ -43,6 +45,8 @@ export interface AppConfig {
 	n_gpu_layers: number;
 	flash_attn: 'auto' | 'on' | 'off';
 	pinned_models?: string[];
+	default_model_id?: string;
+	forward_params_to_external: boolean;
 }
 
 export interface SSEToken {
@@ -129,4 +133,36 @@ export interface MemoryInfo {
 export interface VersionInfo {
 	version: string;
 	build: string;
+}
+
+export interface ProviderTypeInfo {
+	type: string;
+	label: string;
+	requires_key: boolean;
+	default_url: string;
+}
+
+export interface SelectedModel {
+	name: string;
+	display_name?: string;
+}
+
+export interface Provider {
+	id: string;
+	name: string;
+	type: string;
+	base_url: string;
+	has_api_key: boolean;
+	enabled: boolean;
+	models: SelectedModel[];
+}
+
+export interface ProviderModel {
+	name: string;
+	size: number;
+	details?: {
+		family: string;
+		parameter_size: string;
+		quantization_level: string;
+	};
 }

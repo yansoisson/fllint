@@ -1,10 +1,8 @@
 package llm
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -477,61 +475,9 @@ func (e *LlamaCppEngine) ChatStream(ctx context.Context, messages []ChatMessage)
 	return ch, nil
 }
 
-// parseSSEStream reads the OpenAI SSE format and sends tokens to the channel.
+// parseSSEStream delegates to the shared parseOpenAISSE function.
 func (e *LlamaCppEngine) parseSSEStream(ctx context.Context, body io.ReadCloser, ch chan<- Token) {
-	defer close(ch)
-	defer body.Close()
-
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		data = strings.TrimSpace(data)
-
-		if data == "[DONE]" {
-			return
-		}
-
-		var chunk struct {
-			Choices []struct {
-				Delta struct {
-					Content          string `json:"content"`
-					ReasoningContent string `json:"reasoning_content"`
-				} `json:"delta"`
-				FinishReason *string `json:"finish_reason"`
-			} `json:"choices"`
-		}
-
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
-		}
-
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-
-		content := chunk.Choices[0].Delta.Content
-		reasoning := chunk.Choices[0].Delta.ReasoningContent
-		if content == "" && reasoning == "" {
-			continue
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		case ch <- Token{Content: content, Reasoning: reasoning}:
-		}
-	}
-
-	if err := scanner.Err(); err != nil && ctx.Err() == nil {
-		log.Printf("SSE stream read error: %v", err)
-	}
+	parseOpenAISSE(ctx, body, ch)
 }
 
 func (e *LlamaCppEngine) ModelName() string {
@@ -645,36 +591,9 @@ func (e *LlamaCppEngine) buildOAIMessage(m ChatMessage) (oaiMessage, error) {
 	return msg, nil
 }
 
-// imageToDataURI reads an uploaded image file from disk and returns a
-// base64-encoded data URI suitable for the OpenAI vision API.
+// imageToDataURI delegates to the shared package-level function.
 func (e *LlamaCppEngine) imageToDataURI(imgURL string) (string, error) {
-	filename := strings.TrimPrefix(imgURL, "/api/uploads/")
-	if filename == imgURL || filename == "" {
-		return "", fmt.Errorf("invalid image URL format")
-	}
-
-	filePath := filepath.Join(e.dataDir, "uploads", filename)
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("cannot read image file: %w", err)
-	}
-
-	ext := strings.ToLower(filepath.Ext(filename))
-	mime := "image/jpeg"
-	switch ext {
-	case ".png":
-		mime = "image/png"
-	case ".gif":
-		mime = "image/gif"
-	case ".webp":
-		mime = "image/webp"
-	case ".jpg", ".jpeg":
-		mime = "image/jpeg"
-	}
-
-	encoded := base64.StdEncoding.EncodeToString(data)
-	return fmt.Sprintf("data:%s;base64,%s", mime, encoded), nil
+	return imageToDataURI(e.dataDir, imgURL)
 }
 
 // findAvailablePort asks the OS for a free TCP port on localhost.

@@ -19,24 +19,26 @@ import (
 	"github.com/fllint/fllint/internal/image"
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/prompt"
+	"github.com/fllint/fllint/internal/provider"
 	"github.com/fllint/fllint/internal/queue"
 	"github.com/fllint/fllint/internal/version"
 )
 
 // Server holds the HTTP server and its dependencies.
 type Server struct {
-	router      chi.Router
-	cfg         *config.Config
-	llmManager  *llm.Manager
-	queue       *queue.Queue
-	downloadMgr *download.Manager
+	router        chi.Router
+	cfg           *config.Config
+	llmManager    *llm.Manager
+	queue         *queue.Queue
+	downloadMgr   *download.Manager
+	providerStore *provider.Store
 
 	isProduction bool
 	translocated bool // macOS App Translocation — updates unavailable until restart
 }
 
 // New creates a new Server with all routes configured.
-func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, downloadMgr *download.Manager, translocated bool) (*Server, error) {
+func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, downloadMgr *download.Manager, providerStore *provider.Store, translocated bool) (*Server, error) {
 	chatStore, err := chat.NewStore(cfg.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("init chat store: %w", err)
@@ -50,13 +52,14 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 	inferenceQueue := queue.NewQueue(llmManager)
 
 	s := &Server{
-		router:       chi.NewRouter(),
-		cfg:          cfg,
-		llmManager:   llmManager,
-		queue:        inferenceQueue,
-		downloadMgr:  downloadMgr,
-		isProduction: frontendFS != nil,
-		translocated: translocated,
+		router:        chi.NewRouter(),
+		cfg:           cfg,
+		llmManager:    llmManager,
+		queue:         inferenceQueue,
+		downloadMgr:   downloadMgr,
+		providerStore: providerStore,
+		isProduction:  frontendFS != nil,
+		translocated:  translocated,
 	}
 
 	for _, mw := range CommonMiddleware() {
@@ -96,6 +99,16 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 		r.Post("/downloads/cancel", s.cancelDownload)
 
 		r.Post("/open-folder", s.openFolder)
+
+		// Providers
+		r.Get("/providers", s.listProviders)
+		r.Post("/providers", s.createProvider)
+		r.Get("/providers/types", s.listProviderTypes)
+		r.Put("/providers/{id}", s.updateProvider)
+		r.Delete("/providers/{id}", s.deleteProvider)
+		r.Post("/providers/{id}/test", s.testProvider)
+		r.Post("/providers/{id}/fetch-models", s.fetchProviderModels)
+		r.Post("/providers/{id}/models", s.saveProviderModels)
 
 		r.Get("/version", s.getVersion)
 		r.Post("/check-update", s.checkUpdate)
@@ -425,6 +438,113 @@ func (s *Server) cancelDownload(w http.ResponseWriter, r *http.Request) {
 		respondErrorJSON(w, http.StatusNotFound, "cancel_error", err.Error())
 		return
 	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// --- Provider handlers ---
+
+func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
+	providers := s.providerStore.List()
+	result := make([]provider.ProviderResponse, len(providers))
+	for i := range providers {
+		result[i] = providers[i].Redacted()
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) listProviderTypes(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, provider.RegisteredTypes())
+}
+
+func (s *Server) createProvider(w http.ResponseWriter, r *http.Request) {
+	var p provider.Provider
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+	created, err := s.providerStore.Create(p)
+	if err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "provider_error", err.Error())
+		return
+	}
+	s.llmManager.RefreshExternalModels()
+	respondJSON(w, http.StatusCreated, created.Redacted())
+}
+
+func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var p provider.Provider
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+	p.ID = id
+	updated, err := s.providerStore.Update(p)
+	if err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "provider_error", err.Error())
+		return
+	}
+	s.llmManager.RefreshExternalModels()
+	respondJSON(w, http.StatusOK, updated.Redacted())
+}
+
+func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.providerStore.Delete(id); err != nil {
+		respondErrorJSON(w, http.StatusNotFound, "provider_error", err.Error())
+		return
+	}
+	s.llmManager.RefreshExternalModels()
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := s.providerStore.Get(id)
+	if err != nil {
+		respondErrorJSON(w, http.StatusNotFound, "provider_error", err.Error())
+		return
+	}
+
+	client := provider.NewOllamaClient(p.BaseURL, p.APIKey)
+	if err := client.TestConnection(r.Context()); err != nil {
+		respondErrorJSON(w, http.StatusBadGateway, "connection_error", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := s.providerStore.Get(id)
+	if err != nil {
+		respondErrorJSON(w, http.StatusNotFound, "provider_error", err.Error())
+		return
+	}
+
+	client := provider.NewOllamaClient(p.BaseURL, p.APIKey)
+	models, err := client.ListModels(r.Context())
+	if err != nil {
+		respondErrorJSON(w, http.StatusBadGateway, "connection_error", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, models)
+}
+
+func (s *Server) saveProviderModels(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req struct {
+		Models []provider.SelectedModel `json:"models"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+	if err := s.providerStore.SetModels(id, req.Models); err != nil {
+		respondErrorJSON(w, http.StatusNotFound, "provider_error", err.Error())
+		return
+	}
+	s.llmManager.RefreshExternalModels()
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

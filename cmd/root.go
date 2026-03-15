@@ -20,6 +20,7 @@ import (
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/paths"
 	"github.com/fllint/fllint/internal/prompt"
+	"github.com/fllint/fllint/internal/provider"
 	"github.com/fllint/fllint/internal/server"
 )
 
@@ -62,62 +63,55 @@ func Run(frontendFS fs.FS) {
 	}
 	serverBinaryPath := filepath.Join(appPaths.BinDir, "llama-server")
 
-	// Initialize LLM manager with real model discovery
-	llmManager := llm.NewManager(serverBinaryPath, cfg.ModelsDir, cfg.DataDir)
+	// Initialize provider store for external model servers
+	providerStore, err := provider.NewStore(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("Failed to load providers: %v", err)
+	}
+
+	// Initialize LLM manager with real model discovery and external provider support
+	llmManager := llm.NewManager(serverBinaryPath, cfg.ModelsDir, cfg.DataDir, providerStore)
+	llmManager.RefreshExternalModels()
 
 	// Initialize download manager for in-app model downloads
 	downloadMgr := download.NewManager(cfg.ModelsDir, llmManager)
 
-	// Auto-setup: download Lite model if needed, then auto-load
+	// Auto-load: if models exist, load the configured default (or smallest)
 	go func() {
 		if !llmManager.HasBinary() {
 			return
 		}
 		models := llmManager.ListModels()
-
-		// If no models exist, auto-download the Lite model
 		if len(models) == 0 {
-			log.Println("No models found — auto-downloading Lite model...")
-			info, err := downloadMgr.Start("lite-qwen3.5-2b")
-			if err != nil {
-				log.Printf("Auto-download failed: %v", err)
-				return
-			}
-			// Wait for download to complete
-			for {
-				time.Sleep(2 * time.Second)
-				statuses := downloadMgr.Status()
-				var found *download.DownloadInfo
-				for _, s := range statuses {
-					if s.ID == info.ID {
-						found = s
-						break
-					}
-				}
-				if found == nil || found.State == download.StateComplete {
-					break
-				}
-				if found.State == download.StateError || found.State == download.StateCancelled {
-					log.Printf("Auto-download stopped: %s", found.Error)
-					return
-				}
-			}
-			models = llmManager.ListModels()
-			if len(models) == 0 {
-				return
-			}
+			log.Println("No models found — user will be prompted to download one")
+			return
 		}
 
-		// Auto-load the smallest available model
-		target := models[0]
-		log.Printf("Auto-loading %q...", target.Name)
-		if err := llmManager.SetActive(target.ID); err != nil {
-			log.Printf("Auto-load failed: %v", err)
+		// Load the user's configured default model, or fall back to the smallest
+		targetID := cfg.DefaultModelID
+		if targetID != "" {
+			log.Printf("Auto-loading configured default model %q...", targetID)
+			if err := llmManager.SetActive(targetID); err != nil {
+				log.Printf("Configured default model failed to load: %v — falling back to smallest model", err)
+				targetID = "" // fall through to smallest
+			}
+		}
+		if targetID == "" {
+			// Find the smallest local model (skip external models for auto-load)
+			for _, m := range models {
+				if !m.External {
+					log.Printf("Auto-loading %q...", m.Name)
+					if err := llmManager.SetActive(m.ID); err != nil {
+						log.Printf("Auto-load failed: %v", err)
+					}
+					break
+				}
+			}
 		}
 	}()
 
 	// Create HTTP server
-	srv, err := server.New(cfg, frontendFS, llmManager, downloadMgr, appPaths.Translocated)
+	srv, err := server.New(cfg, frontendFS, llmManager, downloadMgr, providerStore, appPaths.Translocated)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

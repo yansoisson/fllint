@@ -2,6 +2,11 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -74,6 +79,73 @@ func (s *StubEngine) ModelName() string {
 
 func (s *StubEngine) IsReady() bool {
 	return true
+}
+
+// imageToDataURI reads an uploaded image file from disk and returns a
+// base64-encoded data URI suitable for the OpenAI vision API.
+// Shared between LlamaCppEngine and ExternalEngine.
+func imageToDataURI(dataDir string, imgURL string) (string, error) {
+	filename := strings.TrimPrefix(imgURL, "/api/uploads/")
+	if filename == imgURL || filename == "" {
+		return "", fmt.Errorf("invalid image URL format")
+	}
+
+	filePath := filepath.Join(dataDir, "uploads", filename)
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("cannot read image file: %w", err)
+	}
+
+	ext := strings.ToLower(filepath.Ext(filename))
+	mime := "image/jpeg"
+	switch ext {
+	case ".png":
+		mime = "image/png"
+	case ".gif":
+		mime = "image/gif"
+	case ".webp":
+		mime = "image/webp"
+	case ".jpg", ".jpeg":
+		mime = "image/jpeg"
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(data)
+	return fmt.Sprintf("data:%s;base64,%s", mime, encoded), nil
+}
+
+// buildOAIMessageWithImages converts a ChatMessage to an OAI message,
+// handling images by converting them to base64 data URIs.
+// Shared between LlamaCppEngine and ExternalEngine.
+func buildOAIMessageWithImages(dataDir string, m ChatMessage) (oaiMessage, error) {
+	msg := oaiMessage{Role: m.Role}
+
+	if len(m.Images) == 0 {
+		msg.Content = m.Content
+		return msg, nil
+	}
+
+	var parts []oaiContentPart
+	if m.Content != "" {
+		parts = append(parts, oaiContentPart{
+			Type: "text",
+			Text: m.Content,
+		})
+	}
+
+	for _, imgURL := range m.Images {
+		dataURI, err := imageToDataURI(dataDir, imgURL)
+		if err != nil {
+			return oaiMessage{}, fmt.Errorf("failed to process image %s: %w", imgURL, err)
+		}
+		parts = append(parts, oaiContentPart{
+			Type:     "image_url",
+			ImageURL: &oaiImageURL{URL: dataURI},
+		})
+	}
+
+	msg.Content = parts
+	return msg, nil
 }
 
 // splitIntoTokens breaks text into word-level tokens preserving spaces.

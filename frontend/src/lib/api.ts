@@ -9,7 +9,11 @@ import type {
 	MemoryErrorInfo,
 	RegistryModel,
 	DownloadStatus,
-	VersionInfo
+	VersionInfo,
+	Provider,
+	ProviderTypeInfo,
+	ProviderModel,
+	SelectedModel
 } from './types';
 
 const BASE = '/api';
@@ -286,6 +290,65 @@ export async function deleteAllConversations(): Promise<void> {
 
 export async function getVersion(): Promise<VersionInfo> {
 	return request('/version');
+}
+
+// --- Providers ---
+
+export async function listProviders(): Promise<Provider[]> {
+	return request('/providers');
+}
+
+export async function listProviderTypes(): Promise<ProviderTypeInfo[]> {
+	return request('/providers/types');
+}
+
+export async function createProvider(p: {
+	name: string;
+	type: string;
+	base_url: string;
+	api_key?: string;
+	enabled: boolean;
+}): Promise<Provider> {
+	return request('/providers', {
+		method: 'POST',
+		body: JSON.stringify(p)
+	});
+}
+
+export async function updateProvider(
+	id: string,
+	p: {
+		name: string;
+		type: string;
+		base_url: string;
+		api_key?: string;
+		enabled: boolean;
+		models?: SelectedModel[];
+	}
+): Promise<Provider> {
+	return request(`/providers/${id}`, {
+		method: 'PUT',
+		body: JSON.stringify(p)
+	});
+}
+
+export async function deleteProvider(id: string): Promise<void> {
+	await request(`/providers/${id}`, { method: 'DELETE' });
+}
+
+export async function testProvider(id: string): Promise<void> {
+	await request(`/providers/${id}/test`, { method: 'POST' });
+}
+
+export async function fetchProviderModels(id: string): Promise<ProviderModel[]> {
+	return request(`/providers/${id}/fetch-models`, { method: 'POST' });
+}
+
+export async function saveProviderModels(id: string, models: SelectedModel[]): Promise<void> {
+	await request(`/providers/${id}/models`, {
+		method: 'POST',
+		body: JSON.stringify({ models })
+	});
 }
 
 // --- Updates ---

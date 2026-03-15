@@ -13,6 +13,7 @@ import (
 
 	"github.com/fllint/fllint/internal/config"
 	"github.com/fllint/fllint/internal/memory"
+	"github.com/fllint/fllint/internal/provider"
 )
 
 // MemoryError is returned when there is not enough memory to load a model.
@@ -66,29 +67,35 @@ type ManagerStatus struct {
 }
 
 // Manager handles model discovery and engine lifecycle.
-// It supports multiple concurrent llama-server processes, one per loaded model.
+// It supports multiple concurrent llama-server processes, one per loaded model,
+// as well as external engines that talk to remote model servers.
 type Manager struct {
 	mu       sync.RWMutex
 	loadMu   sync.Mutex // serialises LoadModel/UnloadModel calls without blocking reads
 
-	engines        map[string]*EngineEntry // modelID -> running engine
-	models         []ModelInfo
-	defaultModelID string // the "active" model for backward compat
+	engines         map[string]*EngineEntry    // modelID -> running local engine
+	externalEngines map[string]*ExternalEngine // modelID -> external engine (always ready)
+	models          []ModelInfo
+	defaultModelID  string // the "active" model for backward compat
 
 	serverBinaryPath string
 	modelsDir        string
 	dataDir          string
 	hasBinary        bool
+	providerStore    *provider.Store
 }
 
 // NewManager creates a Manager that discovers models on disk and checks for
-// the llama-server binary.
-func NewManager(serverBinaryPath string, modelsDir string, dataDir string) *Manager {
+// the llama-server binary. If providerStore is non-nil, external models from
+// providers will be available.
+func NewManager(serverBinaryPath string, modelsDir string, dataDir string, providerStore *provider.Store) *Manager {
 	m := &Manager{
 		serverBinaryPath: serverBinaryPath,
 		modelsDir:        modelsDir,
 		dataDir:          dataDir,
 		engines:          make(map[string]*EngineEntry),
+		externalEngines:  make(map[string]*ExternalEngine),
+		providerStore:    providerStore,
 	}
 
 	if _, err := os.Stat(serverBinaryPath); err == nil {
@@ -334,6 +341,17 @@ func (m *Manager) findModel(modelID string) *ModelInfo {
 // The slow engine Start() call runs outside the RWMutex so that read-only
 // endpoints (ListModels, Status, etc.) remain responsive.
 func (m *Manager) LoadModel(modelID string) error {
+	// External models are always ready — no loading needed.
+	if strings.HasPrefix(modelID, "ext:") {
+		m.mu.RLock()
+		_, exists := m.externalEngines[modelID]
+		m.mu.RUnlock()
+		if exists {
+			return nil
+		}
+		return fmt.Errorf("External model %q not found. Check your provider settings.", modelID)
+	}
+
 	// loadMu serialises concurrent LoadModel/UnloadModel calls without
 	// blocking readers on m.mu.
 	m.loadMu.Lock()
@@ -482,8 +500,24 @@ func (m *Manager) LoadModel(modelID string) error {
 }
 
 // UnloadModel stops the llama-server process for the given model.
+// For external models, it removes the engine entry.
 // Returns an error if the model is not currently loaded.
 func (m *Manager) UnloadModel(modelID string) error {
+	// External models: just remove from the map
+	if strings.HasPrefix(modelID, "ext:") {
+		m.mu.Lock()
+		if _, ok := m.externalEngines[modelID]; ok {
+			delete(m.externalEngines, modelID)
+			if m.defaultModelID == modelID {
+				m.defaultModelID = ""
+			}
+			m.mu.Unlock()
+			return nil
+		}
+		m.mu.Unlock()
+		return fmt.Errorf("Model %q is not currently loaded.", modelID)
+	}
+
 	m.loadMu.Lock()
 	defer m.loadMu.Unlock()
 
@@ -570,10 +604,20 @@ func (m *Manager) autoUnloadForSpace(requiredBytes int64) {
 }
 
 // GetEngine returns the engine for a given model, or nil if not loaded.
-// Updates LastUsedAt for LRU tracking.
+// Updates LastUsedAt for LRU tracking. For external models, returns the
+// ExternalEngine directly (always ready, no LRU tracking needed).
 func (m *Manager) GetEngine(modelID string) Engine {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Check external engines first for ext: prefixed IDs
+	if strings.HasPrefix(modelID, "ext:") {
+		if engine, ok := m.externalEngines[modelID]; ok {
+			return engine
+		}
+		return nil
+	}
+
 	if entry, ok := m.engines[modelID]; ok && entry.Engine != nil {
 		entry.LastUsedAt = time.Now()
 		return entry.Engine
@@ -588,6 +632,13 @@ func (m *Manager) GetDefaultEngine() Engine {
 	if m.defaultModelID == "" {
 		return nil
 	}
+	// Check external engines first
+	if strings.HasPrefix(m.defaultModelID, "ext:") {
+		if engine, ok := m.externalEngines[m.defaultModelID]; ok {
+			return engine
+		}
+		return nil
+	}
 	if entry, ok := m.engines[m.defaultModelID]; ok && entry.Engine != nil {
 		return entry.Engine
 	}
@@ -600,10 +651,12 @@ func (m *Manager) Engine() Engine {
 	return m.GetDefaultEngine()
 }
 
-// ListModels returns a copy of the discovered model list with loaded status.
+// ListModels returns a copy of the discovered model list with loaded status,
+// including external models from providers.
 func (m *Manager) ListModels() []ModelInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	result := make([]ModelInfo, len(m.models))
 	copy(result, m.models)
 	for i := range result {
@@ -611,6 +664,20 @@ func (m *Manager) ListModels() []ModelInfo {
 			result[i].Loaded = true
 		}
 	}
+
+	// Append external models (always loaded)
+	for modelID, engine := range m.externalEngines {
+		result = append(result, ModelInfo{
+			ID:         modelID,
+			Name:       engine.ModelName(),
+			Tier:       TierExternal,
+			External:   true,
+			ProviderID: engine.providerID,
+			Loaded:     true,
+			Active:     modelID == m.defaultModelID,
+		})
+	}
+
 	return result
 }
 
@@ -632,6 +699,11 @@ func (m *Manager) SetActive(modelID string) error {
 
 	log.Printf("Default model set to %q", modelID)
 	return nil
+}
+
+// IsExternalModel reports whether the given model ID is an external model.
+func IsExternalModel(modelID string) bool {
+	return strings.HasPrefix(modelID, "ext:")
 }
 
 // IsSwitching reports whether any model is currently loading.
@@ -685,6 +757,15 @@ func (m *Manager) Status() ManagerStatus {
 		status.Engines = append(status.Engines, info)
 	}
 
+	// Add external engines (always ready)
+	for modelID, engine := range m.externalEngines {
+		status.Engines = append(status.Engines, EngineStatusInfo{
+			ModelID:   modelID,
+			ModelName: engine.ModelName(),
+			State:     EngineStateReady.String(),
+		})
+	}
+
 	// Ensure Engines is never null in JSON
 	if status.Engines == nil {
 		status.Engines = []EngineStatusInfo{}
@@ -692,7 +773,11 @@ func (m *Manager) Status() ManagerStatus {
 
 	// Populate backward-compat fields from the default engine
 	if m.defaultModelID != "" {
-		if entry, ok := m.engines[m.defaultModelID]; ok {
+		if engine, ok := m.externalEngines[m.defaultModelID]; ok {
+			// External model is default — always ready
+			status.EngineState = EngineStateReady.String()
+			status.ModelName = engine.ModelName()
+		} else if entry, ok := m.engines[m.defaultModelID]; ok {
 			if entry.Loading {
 				status.EngineState = EngineStateStarting.String()
 				if mi := m.findModel(m.defaultModelID); mi != nil {
@@ -829,6 +914,7 @@ func (m *Manager) Stop() {
 		}
 	}
 	m.engines = make(map[string]*EngineEntry)
+	m.externalEngines = make(map[string]*ExternalEngine)
 	m.defaultModelID = ""
 	m.mu.Unlock()
 
@@ -838,15 +924,53 @@ func (m *Manager) Stop() {
 	}
 }
 
-// LoadedModelIDs returns the IDs of all currently loaded (or loading) models.
+// LoadedModelIDs returns the IDs of all currently loaded (or loading) models,
+// including external models.
 func (m *Manager) LoadedModelIDs() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.engines))
+	ids := make([]string, 0, len(m.engines)+len(m.externalEngines))
 	for id := range m.engines {
 		ids = append(ids, id)
 	}
+	for id := range m.externalEngines {
+		ids = append(ids, id)
+	}
 	return ids
+}
+
+// RefreshExternalModels rebuilds the external engines map from all enabled
+// providers' selected models. Called on startup and when providers change.
+func (m *Manager) RefreshExternalModels() {
+	if m.providerStore == nil {
+		return
+	}
+
+	providers := m.providerStore.List()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Build new external engines map
+	newEngines := make(map[string]*ExternalEngine)
+	for _, p := range providers {
+		if !p.Enabled {
+			continue
+		}
+		for _, model := range p.Models {
+			modelID := fmt.Sprintf("ext:%s:%s", p.ID, model.Name)
+			// Reuse existing engine if already registered (avoids unnecessary churn)
+			if existing, ok := m.externalEngines[modelID]; ok {
+				newEngines[modelID] = existing
+			} else {
+				newEngines[modelID] = NewExternalEngine(p.BaseURL, p.APIKey, model.Name, p.ID, m.dataDir)
+			}
+		}
+	}
+
+	m.externalEngines = newEngines
+	log.Printf("Refreshed external models: %d engine(s) from %d provider(s)",
+		len(newEngines), len(providers))
 }
 
 // MemoryStatus represents memory usage information for the API.

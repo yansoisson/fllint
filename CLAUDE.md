@@ -42,11 +42,12 @@ Single-binary local AI chat app. Go backend serves a SvelteKit SPA embedded via 
 - **Entry points**: `main.go` (prod, embeds frontend) / `main_dev.go` (dev, skips embed) — controlled by `//go:build dev` tag
 - **Bootstrap**: `cmd/root.go` — resolves paths via `internal/paths`, loads config, creates managers, starts HTTP server, opens browser, runs systray on main goroutine (macOS AppKit requirement)
 - **`internal/paths/`**: `Resolve()` returns `AppPaths{BinDir, DataDir, ModelsDir}`. Detection priority: env vars → macOS `.app` bundle → CWD defaults. Extensible for Linux AppImage.
-- **`internal/llm/`**: `Engine` interface with `ChatStream` returning `<-chan Token`. `LlamaCppEngine` manages a `llama-server` child process and talks to it via OpenAI-compatible HTTP API (`/v1/chat/completions`). `Manager` handles model discovery (scans `modelsDir/` for `.gguf` files), engine lifecycle, and model switching with RWMutex. `StubEngine` kept for development.
+- **`internal/llm/`**: `Engine` interface with `ChatStream` returning `<-chan Token`. `LlamaCppEngine` manages a `llama-server` child process and talks to it via OpenAI-compatible HTTP API (`/v1/chat/completions`). `ExternalEngine` talks to external OpenAI-compatible servers (Ollama, etc.) — no process management, always ready. `Manager` handles model discovery (scans `modelsDir/` for `.gguf` files), engine lifecycle, model switching with RWMutex, and external models from providers (ID format: `ext:{provider_id}:{model_name}`). `StubEngine` kept for development.
 - **`internal/chat/`**: SSE streaming handler (`http.Flusher`), conversation CRUD. `Store` persists conversations as individual JSON files in `{dataDir}/conversations/`.
 - **`internal/server/`**: chi router, middleware stack, SPA fallback serving. No `middleware.Timeout` — it wraps ResponseWriter and breaks SSE Flusher.
 - **`internal/config/`**: JSON config with env var overrides (`FLLINT_PORT`, `FLLINT_DATA_DIR`, `FLLINT_MODELS_DIR`)
 - **`internal/image/`**: Multipart upload (10MB limit), UUID filenames, serves via `/api/uploads/*`
+- **`internal/provider/`**: External model provider management. `Store` persists provider configs to `{dataDir}/providers.json`. `OllamaClient` talks to Ollama servers for model listing and connection testing. Provider types: `ollama-local`, `ollama-cloud`.
 - **`internal/download/`**: In-app model download manager. `Manager` handles a single-worker download queue with `.partial` file resume, progress tracking via `atomic.Int64`, URL allowlist (huggingface.co only), and disk space checking. `registry.go` defines official downloadable models. Downloads to `{modelsDir}/{Tier}/` subdirectories.
 - **`internal/launcher/`**: `fyne.io/systray` (must run on main goroutine), platform-specific browser open
 - **`internal/version/`**: App version constants (`Version`, `Build`), exposed via `/api/version`
@@ -82,6 +83,14 @@ All under `/api/`:
 - `POST /downloads/cancel` — cancel a download (`{download_id}`)
 - `GET /version` — app version info (`{version, build}`)
 - `POST /check-update` — launch Sparkle update checker (macOS production only)
+- `GET /providers` — list external model providers (API keys redacted)
+- `POST /providers` — create a provider
+- `PUT /providers/{id}` — update a provider
+- `DELETE /providers/{id}` — delete a provider
+- `GET /providers/types` — list available provider types with metadata
+- `POST /providers/{id}/test` — test provider connection
+- `POST /providers/{id}/fetch-models` — list models available on provider
+- `POST /providers/{id}/models` — save selected models for provider
 
 ## LLM Backend (llama.cpp)
 
