@@ -20,7 +20,6 @@ import (
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/paths"
 	"github.com/fllint/fllint/internal/server"
-	"github.com/fllint/fllint/internal/updater"
 )
 
 // Run is the main entry point for the application.
@@ -142,22 +141,10 @@ func Run(frontendFS fs.FS) {
 			}
 		}()
 
-		// Auto-check for updates after a short delay (don't slow down startup).
-		// Skip when translocated — Sparkle can't update an app running from
-		// a temporary read-only path (macOS App Translocation).
-		if appPaths.Translocated {
-			log.Println("Sparkle: skipping update check (app is translocated)")
-		} else if updater.HelperExists() {
-			go func() {
-				time.Sleep(10 * time.Second)
-				log.Println("Sparkle: auto-checking for updates")
-				if err := updater.CheckForUpdate(); err != nil {
-					log.Printf("Sparkle: %v", err)
-				}
-			}()
-		} else {
-			log.Println("Sparkle: helper not found, auto-update disabled")
-		}
+		// Auto-update is disabled until the repo is public and GitHub Pages
+		// can serve the appcast. The Sparkle framework and helper remain in
+		// the bundle so it can be re-enabled later without a new build.
+		log.Println("Sparkle: auto-update disabled (appcast not yet available)")
 	}
 
 	// Shared shutdown logic — safe to call from multiple goroutines

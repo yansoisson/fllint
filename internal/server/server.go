@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"net/http"
 	"os/exec"
 	"runtime"
@@ -21,7 +20,6 @@ import (
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/prompt"
 	"github.com/fllint/fllint/internal/queue"
-	"github.com/fllint/fllint/internal/updater"
 	"github.com/fllint/fllint/internal/version"
 )
 
@@ -409,32 +407,10 @@ func (s *Server) getVersion(w http.ResponseWriter, r *http.Request) {
 // --- Update handler ---
 
 func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
-	if !s.isProduction {
-		respondErrorJSON(w, http.StatusBadRequest, "dev_mode",
-			"Auto-update is not available in development mode.")
-		return
-	}
-	if !updater.HelperExists() {
-		respondErrorJSON(w, http.StatusNotFound, "update_unavailable",
-			"Update helper not found. Updates are not available in this build.")
-		return
-	}
-	if s.translocated {
-		respondErrorJSON(w, http.StatusConflict, "translocated",
-			"Updates are available after restarting the app. "+
-				"Restart Fllint and try again.")
-		return
-	}
-
-	if err := updater.CheckForUpdate(); err != nil {
-		log.Printf("Sparkle: %v", err)
-		respondErrorJSON(w, http.StatusInternalServerError, "update_error",
-			"Failed to launch update checker.")
-		return
-	}
-
-	log.Println("Sparkle: update check launched")
-	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	// Auto-update is disabled until the appcast is publicly hosted
+	// (requires GitHub Pages, which needs a public repo).
+	respondErrorJSON(w, http.StatusServiceUnavailable, "update_unavailable",
+		"Auto-updates are not yet available. Check the GitHub releases page for new versions.")
 }
 
 // --- SPA serving ---
