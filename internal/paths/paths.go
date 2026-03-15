@@ -10,9 +10,10 @@ import (
 
 // AppPaths holds all resolved filesystem paths for the application.
 type AppPaths struct {
-	BinDir    string // Directory containing llama-server binary
-	DataDir   string // Directory for conversations, uploads, config
-	ModelsDir string // Directory containing .gguf model files
+	BinDir       string // Directory containing llama-server binary
+	DataDir      string // Directory for conversations, uploads, config
+	ModelsDir    string // Directory containing .gguf model files
+	Translocated bool   // True if running from a macOS App Translocation path
 }
 
 // Resolve determines BinDir, DataDir, and ModelsDir using this priority:
@@ -133,16 +134,19 @@ func parseDarwinBundle(exePath string) (AppPaths, bool) {
 	// The Data/ folder lives alongside the .app on disk, not inside it,
 	// so it won't exist at the translocated temporary path.
 	dataAppDir := appDir
+	translocated := false
 	if original := resolveTranslocatedPath(appDir); original != "" {
 		log.Printf("App Translocation detected: data resolved to %s", filepath.Dir(original))
 		dataAppDir = original
+		translocated = true
 	}
 	bundleRoot := filepath.Dir(dataAppDir)
 
 	return AppPaths{
-		BinDir:    binDir,
-		DataDir:   filepath.Join(bundleRoot, "Data"),
-		ModelsDir: filepath.Join(bundleRoot, "Data", "models"),
+		BinDir:       binDir,
+		DataDir:      filepath.Join(bundleRoot, "Data"),
+		ModelsDir:    filepath.Join(bundleRoot, "Data", "models"),
+		Translocated: translocated,
 	}, true
 }
 

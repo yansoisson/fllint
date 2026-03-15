@@ -142,8 +142,12 @@ func Run(frontendFS fs.FS) {
 			}
 		}()
 
-		// Auto-check for updates after a short delay (don't slow down startup)
-		if updater.HelperExists() {
+		// Auto-check for updates after a short delay (don't slow down startup).
+		// Skip when translocated — Sparkle can't update an app running from
+		// a temporary read-only path (macOS App Translocation).
+		if appPaths.Translocated {
+			log.Println("Sparkle: skipping update check (app is translocated)")
+		} else if updater.HelperExists() {
 			go func() {
 				time.Sleep(10 * time.Second)
 				log.Println("Sparkle: auto-checking for updates")
