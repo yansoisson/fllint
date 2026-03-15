@@ -50,25 +50,56 @@ func Run(frontendFS fs.FS) {
 	// Initialize LLM manager with real model discovery
 	llmManager := llm.NewManager(serverBinaryPath, cfg.ModelsDir, cfg.DataDir)
 
-	// Auto-load the smallest available model in the background
+	// Initialize download manager for in-app model downloads
+	downloadMgr := download.NewManager(cfg.ModelsDir, llmManager)
+
+	// Auto-setup: download Lite model if needed, then auto-load
 	go func() {
 		if !llmManager.HasBinary() {
 			return
 		}
 		models := llmManager.ListModels()
+
+		// If no models exist, auto-download the Lite model
 		if len(models) == 0 {
-			return
+			log.Println("No models found — auto-downloading Lite model...")
+			info, err := downloadMgr.Start("lite-qwen3.5-2b")
+			if err != nil {
+				log.Printf("Auto-download failed: %v", err)
+				return
+			}
+			// Wait for download to complete
+			for {
+				time.Sleep(2 * time.Second)
+				statuses := downloadMgr.Status()
+				var found *download.DownloadInfo
+				for _, s := range statuses {
+					if s.ID == info.ID {
+						found = s
+						break
+					}
+				}
+				if found == nil || found.State == download.StateComplete {
+					break
+				}
+				if found.State == download.StateError || found.State == download.StateCancelled {
+					log.Printf("Auto-download stopped: %s", found.Error)
+					return
+				}
+			}
+			models = llmManager.ListModels()
+			if len(models) == 0 {
+				return
+			}
 		}
-		// models[0] is the smallest (sorted by size in scanModels)
+
+		// Auto-load the smallest available model
 		target := models[0]
 		log.Printf("Auto-loading %q...", target.Name)
 		if err := llmManager.SetActive(target.ID); err != nil {
 			log.Printf("Auto-load failed: %v", err)
 		}
 	}()
-
-	// Initialize download manager for in-app model downloads
-	downloadMgr := download.NewManager(cfg.ModelsDir, llmManager)
 
 	// Create HTTP server
 	srv, err := server.New(cfg, frontendFS, llmManager, downloadMgr)

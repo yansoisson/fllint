@@ -69,23 +69,6 @@ jobs:
           echo "llama-server installed:"
           ls -la bin/llama-server bin/*.dylib
 
-      - name: Download Lite model
-        run: |
-          mkdir -p models/Lite
-
-          echo "Downloading Lite model (Qwen3.5-2B-Q8_0, ~2GB)..."
-          curl -L --fail -o models/Lite/Qwen3.5-2B-Q8_0.gguf \
-            "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q8_0.gguf?download=true"
-
-          echo "Downloading mmproj (vision projector, ~671MB)..."
-          curl -L --fail -o models/Lite/mmproj-BF16.gguf \
-            "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/mmproj-BF16.gguf?download=true"
-
-          echo '{"name": "Lite Model"}' > models/Lite/model.json
-
-          echo "Lite model downloaded:"
-          ls -lh models/Lite/
-
       - name: Build macOS distribution
         run: make dist-macos
 

@@ -10,11 +10,21 @@
 		getChatError,
 		clearChatError,
 		refreshModels,
-		openSettingsToTab
+		openSettingsToTab,
+		isDownloadActive,
+		getActiveDownloadsState,
+		startDownloadPolling
 	} from '$lib/stores.svelte';
 
 	let chatContainer: HTMLDivElement;
 	let hasMessages = $derived(getMessages().length > 0 || getIsStreaming());
+
+	// Start download polling when we detect an active download (e.g. auto-download on first launch)
+	$effect(() => {
+		if (isDownloadActive()) {
+			startDownloadPolling();
+		}
+	});
 
 	$effect(() => {
 		const _ = getMessages();
@@ -74,6 +84,19 @@
 					Place it in the <code>bin/</code> folder.
 				</p>
 				<button class="refresh-btn" onclick={refreshModels}>Refresh</button>
+			{:else if !getEngineStatus()?.has_models && isDownloadActive()}
+				{@const dl = getActiveDownloadsState().find((d) => d.state === 'downloading' || d.state === 'queued')}
+				<h2>Downloading model...</h2>
+				<p>{dl?.display_name ?? 'Model'} — this may take a few minutes.</p>
+				<div class="spinner"></div>
+				{#if dl && dl.total_bytes > 0}
+					<div class="download-progress">
+						<div class="download-bar">
+							<div class="download-fill" style="width: {Math.round((dl.done_bytes / dl.total_bytes) * 100)}%"></div>
+						</div>
+						<span class="download-pct">{Math.round((dl.done_bytes / dl.total_bytes) * 100)}%</span>
+					</div>
+				{/if}
 			{:else if !getEngineStatus()?.has_models}
 				<h2>Download a model to get started</h2>
 				<p>Your setup is ready — just pick a model to download.</p>
@@ -202,6 +225,37 @@
 		to {
 			transform: rotate(360deg);
 		}
+	}
+
+	.download-progress {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin-top: 12px;
+		width: 100%;
+		max-width: 300px;
+	}
+
+	.download-bar {
+		flex: 1;
+		height: 6px;
+		border-radius: 3px;
+		background: var(--bg-tertiary);
+		overflow: hidden;
+	}
+
+	.download-fill {
+		height: 100%;
+		border-radius: 3px;
+		background: var(--accent);
+		transition: width 0.5s ease;
+	}
+
+	.download-pct {
+		font-size: 0.85em;
+		color: var(--text-secondary);
+		min-width: 36px;
+		text-align: right;
 	}
 
 	.error-text {
