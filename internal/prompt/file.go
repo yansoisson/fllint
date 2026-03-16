@@ -18,16 +18,12 @@ func FilePath(dataDir string) string {
 }
 
 // ReadFromFile reads the system prompt from the data directory.
-// If the file does not exist, it creates it with the DefaultSystemPrompt.
+// If the file does not exist, it returns the embedded DefaultSystemPrompt.
 func ReadFromFile(dataDir string) (string, error) {
 	path := FilePath(dataDir)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Auto-create with default
-			if wErr := WriteToFile(dataDir, DefaultSystemPrompt); wErr != nil {
-				return DefaultSystemPrompt, wErr
-			}
 			return DefaultSystemPrompt, nil
 		}
 		return "", err
@@ -49,15 +45,12 @@ func SummaryFilePath(dataDir string) string {
 }
 
 // ReadSummaryPrompt reads the summary prompt from the data directory.
-// If the file does not exist, it creates it with the DefaultSummaryPrompt.
+// If the file does not exist, it returns the embedded DefaultSummaryPrompt.
 func ReadSummaryPrompt(dataDir string) (string, error) {
 	path := SummaryFilePath(dataDir)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if wErr := WriteSummaryPrompt(dataDir, DefaultSummaryPrompt); wErr != nil {
-				return DefaultSummaryPrompt, wErr
-			}
 			return DefaultSummaryPrompt, nil
 		}
 		return "", err

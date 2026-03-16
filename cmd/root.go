@@ -58,10 +58,6 @@ func Run(frontendFS fs.FS) {
 			log.Printf("Warning: failed to clean config after prompt migration: %v", err)
 		}
 	}
-	// Ensure system-prompt.md exists (creates with default if missing)
-	if _, err := prompt.ReadFromFile(cfg.DataDir); err != nil {
-		log.Printf("Warning: failed to initialize system prompt file: %v", err)
-	}
 	serverBinaryPath := filepath.Join(appPaths.BinDir, "llama-server")
 
 	// Initialize provider store for external model servers

@@ -1,18 +1,23 @@
 package prompt
 
-import "strings"
+import (
+	_ "embed"
+	"strings"
+)
+
+//go:embed defaults/system-prompt.md
+var defaultSystemPromptRaw string
+
+//go:embed defaults/summary-prompt.md
+var defaultSummaryPromptRaw string
 
 // DefaultSystemPrompt is the built-in system prompt used when the user
 // has not configured a custom one.
-const DefaultSystemPrompt = "You are Fllint, a helpful, accurate, and concise AI assistant " +
-	"running entirely on the user's local machine. No data leaves this device. " +
-	"Be direct and clear in your responses. When you don't know something, say so. " +
-	"Format responses with markdown when it improves readability."
+var DefaultSystemPrompt = strings.TrimSpace(defaultSystemPromptRaw)
 
 // DefaultSummaryPrompt is the built-in system prompt for the summary model
 // that generates conversation titles.
-const DefaultSummaryPrompt = "Generate a short title (3-5 words) for a conversation. " +
-	"Reply with ONLY the title, nothing else."
+var DefaultSummaryPrompt = strings.TrimSpace(defaultSummaryPromptRaw)
 
 // Build composes the final system prompt from the configured system prompt
 // and optional custom instructions.

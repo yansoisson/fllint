@@ -9,7 +9,8 @@ import (
 type RegistryModel struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
-	Tier        string `json:"tier"` // "lite", "standard", "pro"
+	Category    string `json:"category"` // "main" or "helper"
+	Tier        string `json:"tier"`     // "lite", "standard", "pro", "helper"
 	URL         string `json:"url"`
 	Size        int64  `json:"size"`     // expected file size in bytes
 	SHA256      string `json:"sha256"`   // optional integrity hash (future)
@@ -24,6 +25,7 @@ type RegistryModel struct {
 type RegistryEntry struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
+	Category    string `json:"category"`
 	Tier        string `json:"tier"`
 	Size        int64  `json:"size"`
 	Downloaded  bool   `json:"downloaded"`
@@ -37,6 +39,7 @@ func Registry() []RegistryModel {
 		{
 			ID:          "lite-qwen3.5-2b",
 			DisplayName: "Lite Model",
+			Category:    "main",
 			Tier:        "lite",
 			URL:         "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q8_0.gguf?download=true",
 			Size:        2_012_012_800,
@@ -49,6 +52,7 @@ func Registry() []RegistryModel {
 		{
 			ID:          "standard-qwen3.5-9b",
 			DisplayName: "Standard Model",
+			Category:    "main",
 			Tier:        "standard",
 			URL:         "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q8_0.gguf?download=true",
 			Size:        9_527_502_048,
@@ -61,6 +65,7 @@ func Registry() []RegistryModel {
 		{
 			ID:          "pro-qwen3.5-27b",
 			DisplayName: "Pro Model",
+			Category:    "main",
 			Tier:        "pro",
 			URL:         "https://huggingface.co/unsloth/Qwen3.5-27B-GGUF/resolve/main/Qwen3.5-27B-Q6_K.gguf?download=true",
 			Size:        22_453_933_984,
@@ -69,6 +74,16 @@ func Registry() []RegistryModel {
 			MmprojURL:   "https://huggingface.co/unsloth/Qwen3.5-27B-GGUF/resolve/main/mmproj-BF16.gguf?download=true",
 			MmprojSize:  931_145_984,
 			MmprojName:  "mmproj-BF16.gguf",
+		},
+		{
+			ID:          "helper-summary-qwen3.5-0.8b",
+			DisplayName: "Summary Model",
+			Category:    "helper",
+			Tier:        "helper",
+			URL:         "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_0.gguf?download=true",
+			Size:        507_154_688,
+			Filename:    "Qwen3.5-0.8B-Q4_0.gguf",
+			DirName:     "Helper-hewrow-Nipju6-mecnop/Summary",
 		},
 	}
 }
@@ -90,6 +105,7 @@ func CheckDownloaded(modelsDir string, models []RegistryModel) []RegistryEntry {
 		entry := RegistryEntry{
 			ID:          m.ID,
 			DisplayName: m.DisplayName,
+			Category:    m.Category,
 			Tier:        m.Tier,
 			Size:        m.Size,
 			MmprojSize:  m.MmprojSize,

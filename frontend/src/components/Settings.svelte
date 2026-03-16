@@ -78,6 +78,17 @@
 	let helperLoading = $state(false);
 	let savingHelper = $state(false);
 
+	// Refresh helper model list when a helper model download completes
+	let prevSummaryDownloaded = $state(false);
+	$effect(() => {
+		const reg = registryModels.find(m => m.id === 'helper-summary-qwen3.5-0.8b');
+		const downloaded = reg?.downloaded ?? false;
+		if (downloaded && !prevSummaryDownloaded && activeTab === 'helper') {
+			loadHelperModels();
+		}
+		prevSummaryDownloaded = downloaded;
+	});
+
 	function getProviderTypeInfo(type: string): ProviderTypeInfo | undefined {
 		return providerTypes.find((t) => t.type === type);
 	}
@@ -888,7 +899,7 @@
 								<p class="field-desc">Download official models directly. Files are saved to your models folder.</p>
 
 								<div class="download-list">
-									{#each registryModels as model (model.id)}
+									{#each registryModels.filter(m => m.category !== 'helper') as model (model.id)}
 										{@const dl = findActiveDownload(model.id)}
 										<div class="download-card">
 											<div class="model-info">
@@ -1276,6 +1287,42 @@
 										<p class="section-description">
 											Generates conversation titles from your first message. A small, fast model works best.
 										</p>
+
+										{@const summaryReg = registryModels.find(m => m.id === 'helper-summary-qwen3.5-0.8b')}
+										{#if summaryReg && !summaryReg.downloaded}
+											{@const dl = findActiveDownload(summaryReg.id)}
+											<div class="download-list" style="margin-bottom: 12px;">
+												<div class="download-card">
+													<div class="model-info">
+														<div class="model-name-row">
+															<span class="model-name">{summaryReg.display_name}</span>
+														</div>
+														<div class="model-meta">
+															<span>{formatSize(summaryReg.size)}</span>
+														</div>
+													</div>
+													<div class="download-action">
+														{#if dl?.state === 'downloading'}
+															<div class="download-progress-row">
+																<div class="progress-bar">
+																	<div class="progress-fill" style="width: {progressPercent(dl)}%"></div>
+																</div>
+																<span class="progress-text">{progressPercent(dl)}%</span>
+																<button class="small-btn danger-text" onclick={() => handleCancelDownload(dl.id)}>Cancel</button>
+															</div>
+														{:else if dl?.state === 'queued'}
+															<span class="queue-text">Waiting...</span>
+															<button class="small-btn danger-text" onclick={() => handleCancelDownload(dl.id)}>Cancel</button>
+														{:else if dl?.state === 'error'}
+															<span class="error-text-small" title={dl.error}>{dl.error}</span>
+															<button class="small-btn" onclick={() => handleStartDownload(summaryReg.id)}>Retry</button>
+														{:else}
+															<button class="secondary-btn download-btn" onclick={() => handleStartDownload(summaryReg.id)}>Download</button>
+														{/if}
+													</div>
+												</div>
+											</div>
+										{/if}
 
 										<div class="field">
 											<label class="field-label" for="summary-model">Model</label>

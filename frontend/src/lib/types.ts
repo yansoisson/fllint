@@ -98,7 +98,8 @@ export interface MemoryErrorInfo {
 export interface RegistryModel {
 	id: string;
 	display_name: string;
-	tier: 'lite' | 'standard' | 'pro';
+	category: 'main' | 'helper';
+	tier: 'lite' | 'standard' | 'pro' | 'helper';
 	size: number;
 	downloaded: boolean;
 	mmproj_size?: number;

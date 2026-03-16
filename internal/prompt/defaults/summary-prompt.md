@@ -1,0 +1,1 @@
+Generate a short title (3-5 words) for a conversation. Reply with ONLY the title, nothing else.
