@@ -10,11 +10,20 @@ import (
 	"github.com/fllint/fllint/internal/llm"
 )
 
+// Priority levels for queue items. Lower number = higher priority.
+const (
+	PriorityChat      = 1 // Main LLM inference (user chat)
+	PriorityEmbedding = 2 // Embedding generation (future)
+	PriorityOCR       = 3 // OCR processing (future)
+	PrioritySummary   = 4 // Title/summary generation
+)
+
 // Item represents a single inference job in the queue.
 type Item struct {
 	ID       string
 	ModelID  string
 	Messages []llm.ChatMessage
+	Priority int            // lower = higher priority (default: PriorityChat)
 	TokenCh  chan llm.Token // tokens stream here from the worker
 	DoneCh   chan struct{}  // closed when processing is done
 	ErrCh    chan error     // send error if engine fails
@@ -44,15 +53,23 @@ func NewQueue(manager *llm.Manager) *Queue {
 	return q
 }
 
-// Enqueue adds an inference job to the queue and returns the item and its
-// 0-indexed position (0 means it will be processed next, after any active job).
+// Enqueue adds an inference job to the queue with default (chat) priority
+// and returns the item and its 0-indexed position.
 func (q *Queue) Enqueue(ctx context.Context, modelID string, messages []llm.ChatMessage) (*Item, int) {
+	return q.EnqueueWithPriority(ctx, modelID, messages, PriorityChat)
+}
+
+// EnqueueWithPriority adds an inference job to the queue with the given priority
+// and returns the item and its 0-indexed position (0 means it will be processed
+// next, after any active job).
+func (q *Queue) EnqueueWithPriority(ctx context.Context, modelID string, messages []llm.ChatMessage, priority int) (*Item, int) {
 	itemCtx, cancel := context.WithCancel(ctx)
 
 	item := &Item{
 		ID:       uuid.New().String(),
 		ModelID:  modelID,
 		Messages: messages,
+		Priority: priority,
 		TokenCh:  make(chan llm.Token, 100),
 		DoneCh:   make(chan struct{}),
 		ErrCh:    make(chan error, 1),
@@ -174,8 +191,9 @@ func (q *Queue) worker() {
 	}
 }
 
-// dequeue removes and returns the first item from the queue, setting it as
-// the active item. Returns nil if the queue is empty.
+// dequeue removes and returns the highest-priority item from the queue,
+// setting it as the active item. Within the same priority level, items are
+// processed in FIFO order. Returns nil if the queue is empty.
 func (q *Queue) dequeue() *Item {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -184,8 +202,17 @@ func (q *Queue) dequeue() *Item {
 		return nil
 	}
 
-	item := q.items[0]
-	q.items = q.items[1:]
+	// Find the item with the lowest priority number (highest priority).
+	// Among items with equal priority, the earliest (lowest index) wins (FIFO).
+	bestIdx := 0
+	for i := 1; i < len(q.items); i++ {
+		if q.items[i].Priority < q.items[bestIdx].Priority {
+			bestIdx = i
+		}
+	}
+
+	item := q.items[bestIdx]
+	q.items = append(q.items[:bestIdx], q.items[bestIdx+1:]...)
 	q.active = item
 	return item
 }

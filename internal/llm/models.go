@@ -17,6 +17,7 @@ const (
 	TierPro      Tier = "pro"
 	TierCustom   Tier = "custom"
 	TierExternal Tier = "external"
+	TierHelper   Tier = "helper"
 )
 
 // ModelInfo describes a model available to the application.
@@ -32,6 +33,8 @@ type ModelInfo struct {
 	Vision     bool   `json:"vision"`                // true if mmproj file is available
 	External   bool   `json:"external"`              // true for models from external providers
 	ProviderID string `json:"provider_id,omitempty"` // which provider this comes from
+	Helper     bool   `json:"helper,omitempty"`      // true for helper models (summary, OCR, embedding)
+	HelperSlot string `json:"helper_slot,omitempty"` // "Summary", "OCR", or "Embedding"
 }
 
 // modelNameFromFilename derives a human-readable name from a GGUF filename.

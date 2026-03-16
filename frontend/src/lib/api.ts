@@ -13,7 +13,8 @@ import type {
 	Provider,
 	ProviderTypeInfo,
 	ProviderModel,
-	SelectedModel
+	SelectedModel,
+	HelperSlotInfo
 } from './types';
 
 const BASE = '/api';
@@ -349,6 +350,35 @@ export async function saveProviderModels(id: string, models: SelectedModel[]): P
 		method: 'POST',
 		body: JSON.stringify({ models })
 	});
+}
+
+// --- Helper Models ---
+
+export async function getHelperModels(): Promise<{ slots: HelperSlotInfo[] }> {
+	return request('/helper-models');
+}
+
+export async function updateHelperConfig(cfg: { summary_model_id?: string }): Promise<void> {
+	await request('/helper-models/config', {
+		method: 'PUT',
+		body: JSON.stringify(cfg)
+	});
+}
+
+export async function getSummaryPrompt(): Promise<{ prompt: string; is_default: boolean }> {
+	return request('/summary-prompt');
+}
+
+export async function updateSummaryPrompt(promptText: string): Promise<{ prompt: string; is_default: boolean }> {
+	return request('/summary-prompt', {
+		method: 'PUT',
+		body: JSON.stringify({ prompt: promptText })
+	});
+}
+
+export async function getDefaultSummaryPrompt(): Promise<string> {
+	const res = await request<{ prompt: string }>('/summary-prompt/default');
+	return res.prompt;
 }
 
 // --- Updates ---

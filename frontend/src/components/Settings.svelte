@@ -22,9 +22,9 @@
 		getProviders
 	} from '$lib/stores.svelte';
 	import * as api from '$lib/api';
-	import type { AppConfig, ModelInfo, DownloadStatus, Provider, ProviderTypeInfo, ProviderModel, SelectedModel } from '$lib/types';
+	import type { AppConfig, ModelInfo, DownloadStatus, Provider, ProviderTypeInfo, ProviderModel, SelectedModel, HelperSlotInfo } from '$lib/types';
 
-	type SettingsTab = 'general' | 'models' | 'advanced';
+	type SettingsTab = 'general' | 'models' | 'helper' | 'advanced';
 
 	let config = $state<AppConfig | null>(null);
 	let loading = $state(false);
@@ -61,12 +61,22 @@
 	let testError = $state<string | null>(null);
 	let fetchingModels = $state<string | null>(null); // provider ID being fetched
 	let availableModels = $state<ProviderModel[]>([]);
-	let selectedModelNames = $state<Set<string>>(new Set());
+	let selectedModelRoles = $state<Map<string, Set<string>>>(new Map());
 	let savingModels = $state(false);
+
+	const MODEL_ROLES = [
+		{ id: 'main', label: 'Main' },
+		{ id: 'summary', label: 'Summary' },
+	] as const;
 	let deletingProviderId = $state<string | null>(null);
 	let managingModelsId = $state<string | null>(null);
 
 	let allProviders = $derived(getProviders());
+
+	// --- Helper models state ---
+	let helperSlots = $state<HelperSlotInfo[]>([]);
+	let helperLoading = $state(false);
+	let savingHelper = $state(false);
 
 	function getProviderTypeInfo(type: string): ProviderTypeInfo | undefined {
 		return providerTypes.find((t) => t.type === type);
@@ -172,7 +182,13 @@
 		}
 		managingModelsId = p.id;
 		fetchingModels = p.id;
-		selectedModelNames = new Set(p.models.map((m) => m.name));
+		// Build role map from saved models
+		const roleMap = new Map<string, Set<string>>();
+		for (const m of p.models) {
+			const roles = m.roles && m.roles.length > 0 ? m.roles : ['main'];
+			roleMap.set(m.name, new Set(roles));
+		}
+		selectedModelRoles = roleMap;
 		try {
 			availableModels = await api.fetchProviderModels(p.id);
 		} catch (err) {
@@ -184,20 +200,41 @@
 		}
 	}
 
-	function toggleModelSelection(name: string) {
-		const next = new Set(selectedModelNames);
-		if (next.has(name)) {
+	function toggleModelRole(name: string, role: string) {
+		const next = new Map(selectedModelRoles);
+		let roles = next.get(name);
+		if (!roles) {
+			roles = new Set<string>();
+			next.set(name, roles);
+		}
+		const nextRoles = new Set(roles);
+		if (nextRoles.has(role)) {
+			nextRoles.delete(role);
+		} else {
+			nextRoles.add(role);
+		}
+		// If no roles remain, remove the model entirely
+		if (nextRoles.size === 0) {
 			next.delete(name);
 		} else {
-			next.add(name);
+			next.set(name, nextRoles);
 		}
-		selectedModelNames = next;
+		selectedModelRoles = next;
+	}
+
+	function isModelRoleSelected(name: string, role: string): boolean {
+		return selectedModelRoles.get(name)?.has(role) ?? false;
 	}
 
 	async function saveProviderModels(providerId: string) {
 		savingModels = true;
 		try {
-			const models: SelectedModel[] = [...selectedModelNames].map((name) => ({ name }));
+			const models: SelectedModel[] = [];
+			for (const [name, roles] of selectedModelRoles) {
+				if (roles.size > 0) {
+					models.push({ name, roles: [...roles] });
+				}
+			}
 			await api.saveProviderModels(providerId, models);
 			await Promise.all([loadProviders(), loadModels()]);
 			managingModelsId = null;
@@ -397,6 +434,31 @@
 		}
 	}
 
+	async function loadHelperModels() {
+		helperLoading = true;
+		try {
+			const data = await api.getHelperModels();
+			helperSlots = data.slots;
+		} catch (err) {
+			console.error('Failed to load helper models:', err);
+		} finally {
+			helperLoading = false;
+		}
+	}
+
+	async function saveHelperConfig(summaryModelId: string) {
+		savingHelper = true;
+		try {
+			await api.updateHelperConfig({ summary_model_id: summaryModelId || undefined });
+			showNotification('Helper model configuration saved.', 'info');
+		} catch (err) {
+			console.error('Failed to save helper config:', err);
+			showNotification('Failed to save helper model configuration.');
+		} finally {
+			savingHelper = false;
+		}
+	}
+
 	async function save() {
 		if (!config || saving) return;
 		saving = true;
@@ -576,6 +638,7 @@
 			<nav class="tab-bar">
 				<button class="tab" class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}>General</button>
 				<button class="tab" class:active={activeTab === 'models'} onclick={() => (activeTab = 'models')}>Models</button>
+				<button class="tab" class:active={activeTab === 'helper'} onclick={() => { activeTab = 'helper'; loadHelperModels(); }}>Helper models</button>
 				{#if config.pro_mode}
 					<button class="tab" class:active={activeTab === 'advanced'} onclick={() => (activeTab = 'advanced')}>Advanced</button>
 				{/if}
@@ -918,20 +981,29 @@
 											{:else}
 												<div class="model-checklist">
 													{#each availableModels as m (m.name)}
-														<label class="model-check-item">
-															<input
-																type="checkbox"
-																checked={selectedModelNames.has(m.name)}
-																onchange={() => toggleModelSelection(m.name)}
-															/>
-															<span class="model-check-name">{m.name}</span>
-															{#if m.details?.parameter_size}
-																<span class="model-check-size">{m.details.parameter_size}</span>
-															{/if}
-														</label>
+														<div class="model-check-item">
+															<div class="model-check-header">
+																<span class="model-check-name">{m.name}</span>
+																{#if m.details?.parameter_size}
+																	<span class="model-check-size">{m.details.parameter_size}</span>
+																{/if}
+															</div>
+															<div class="model-role-row">
+																{#each MODEL_ROLES as role}
+																	<label class="role-chip" class:active={isModelRoleSelected(m.name, role.id)}>
+																		<input
+																			type="checkbox"
+																			checked={isModelRoleSelected(m.name, role.id)}
+																			onchange={() => toggleModelRole(m.name, role.id)}
+																		/>
+																		{role.label}
+																	</label>
+																{/each}
+															</div>
+														</div>
 													{/each}
 												</div>
-												<p class="field-desc" style="margin-top: 8px;">Not all models support image input. Images attached to models without vision support will be silently ignored by the server.</p>
+												<p class="field-desc" style="margin-top: 8px;">Assign each model to one or more roles. Models not assigned to any role will not appear in selectors.</p>
 												<button
 													class="secondary-btn"
 													onclick={() => saveProviderModels(prov.id)}
@@ -1182,6 +1254,79 @@
 								</button>
 							</div>
 						</section>
+
+					{:else if activeTab === 'helper'}
+						<!-- ==================== HELPER MODELS ==================== -->
+
+						{#if helperLoading}
+							<p class="loading">Loading helper models...</p>
+						{:else}
+							{#each helperSlots as slot}
+								<section class="section">
+									<h4 class="section-title">
+										{slot.slot} Model
+										{#if slot.enabled}
+											<span class="active-badge">Active</span>
+										{:else}
+											<span class="coming-soon-badge">Coming soon</span>
+										{/if}
+									</h4>
+
+									{#if slot.slot === 'Summary'}
+										<p class="section-description">
+											Generates conversation titles from your first message. A small, fast model works best.
+										</p>
+
+										<div class="field">
+											<label class="field-label" for="summary-model">Model</label>
+											<select
+												id="summary-model"
+												class="select"
+												value={slot.configured_model_id || ''}
+												onchange={(e) => {
+													const target = e.target as HTMLSelectElement;
+													saveHelperConfig(target.value);
+													// Update local state optimistically
+													slot.configured_model_id = target.value;
+												}}
+												disabled={savingHelper}
+											>
+												<option value="">None (use text truncation)</option>
+												{#each slot.available_models as model}
+													<option value={model.id}>
+														{model.name}{model.external ? ' (External)' : ''}{model.size ? ` — ${formatSize(model.size)}` : ''}
+													</option>
+												{/each}
+											</select>
+										</div>
+
+									{:else if slot.slot === 'OCR'}
+										<p class="section-description">
+											Extracts text from images for searchability and context.
+										</p>
+										<p class="coming-soon-text">OCR model support will be available in a future update.</p>
+									{:else if slot.slot === 'Embedding'}
+										<p class="section-description">
+											Creates vector representations for semantic search across conversations.
+										</p>
+										<p class="coming-soon-text">Embedding model support will be available in a future update.</p>
+									{/if}
+								</section>
+							{/each}
+
+							{#if helperSlots.length === 0}
+								<section class="section">
+									<p class="section-description">No helper model slots available.</p>
+								</section>
+							{/if}
+
+							<section class="section">
+								<p class="section-description">
+									To use external models for helper tasks, assign them the appropriate role in
+									<button class="link-btn" onclick={() => { activeTab = 'models'; }}>Model Providers</button>.
+								</p>
+							</section>
+						{/if}
 
 					{:else if activeTab === 'advanced'}
 						<!-- ==================== SYSTEM PROMPT ==================== -->
@@ -1858,6 +2003,32 @@
 		letter-spacing: normal;
 	}
 
+	.coming-soon-badge {
+		font-size: 0.65rem;
+		padding: 1px 6px;
+		border-radius: 4px;
+		background: var(--border);
+		color: var(--text-secondary);
+		margin-left: 6px;
+		font-weight: 600;
+		text-transform: none;
+		letter-spacing: normal;
+	}
+
+	.section-description {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		margin: 0 0 12px 0;
+		line-height: 1.4;
+	}
+
+	.coming-soon-text {
+		font-size: 0.85rem;
+		color: var(--text-tertiary, var(--text-secondary));
+		font-style: italic;
+		margin: 0;
+	}
+
 	/* Sliders */
 	.slider-header {
 		display: flex;
@@ -2174,16 +2345,18 @@
 
 	.model-check-item {
 		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 6px 8px;
+		flex-direction: column;
+		gap: 4px;
+		padding: 8px;
 		border-radius: 4px;
-		cursor: pointer;
 		font-size: 0.85rem;
+		border: 1px solid var(--border);
 	}
 
-	.model-check-item:hover {
-		background: var(--bg-hover);
+	.model-check-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
 
 	.model-check-name {
@@ -2194,6 +2367,53 @@
 	.model-check-size {
 		color: var(--text-muted);
 		font-size: 0.75rem;
+	}
+
+	.model-role-row {
+		display: flex;
+		gap: 6px;
+		flex-wrap: wrap;
+	}
+
+	.role-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 2px 8px;
+		border-radius: 12px;
+		font-size: 0.75rem;
+		cursor: pointer;
+		border: 1px solid var(--border);
+		background: transparent;
+		color: var(--text-secondary);
+		transition: all 0.15s;
+		user-select: none;
+	}
+
+	.role-chip input[type='checkbox'] {
+		display: none;
+	}
+
+	.role-chip.active {
+		background: var(--accent-light);
+		color: var(--accent);
+		border-color: var(--accent);
+		font-weight: 600;
+	}
+
+	.link-btn {
+		background: none;
+		border: none;
+		color: var(--accent);
+		cursor: pointer;
+		padding: 0;
+		font-size: inherit;
+		font-family: inherit;
+		text-decoration: underline;
+	}
+
+	.link-btn:hover {
+		opacity: 0.8;
 	}
 
 	.provider-form {

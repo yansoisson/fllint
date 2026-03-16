@@ -47,6 +47,7 @@ export interface AppConfig {
 	pinned_models?: string[];
 	default_model_id?: string;
 	forward_params_to_external: boolean;
+	summary_model_id?: string;
 }
 
 export interface SSEToken {
@@ -145,6 +146,7 @@ export interface ProviderTypeInfo {
 export interface SelectedModel {
 	name: string;
 	display_name?: string;
+	roles?: string[]; // e.g. ["main"], ["summary"], ["main","summary"]
 }
 
 export interface Provider {
@@ -155,6 +157,20 @@ export interface Provider {
 	has_api_key: boolean;
 	enabled: boolean;
 	models: SelectedModel[];
+}
+
+export interface HelperModelOption {
+	id: string;
+	name: string;
+	size?: number;
+	external: boolean;
+}
+
+export interface HelperSlotInfo {
+	slot: string;
+	available_models: HelperModelOption[];
+	configured_model_id: string;
+	enabled: boolean;
 }
 
 export interface ProviderModel {

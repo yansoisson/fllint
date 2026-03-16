@@ -17,15 +17,21 @@ import (
 	"github.com/fllint/fllint/internal/queue"
 )
 
-// Handler holds dependencies for chat HTTP handlers.
-type Handler struct {
-	store   *Store
-	manager *llm.Manager
-	queue   *queue.Queue
+// TitleGenerator generates conversation titles asynchronously.
+type TitleGenerator interface {
+	GenerateTitle(convID, userContent, assistantResponse string)
 }
 
-func NewHandler(store *Store, manager *llm.Manager, q *queue.Queue) *Handler {
-	return &Handler{store: store, manager: manager, queue: q}
+// Handler holds dependencies for chat HTTP handlers.
+type Handler struct {
+	store    *Store
+	manager  *llm.Manager
+	queue    *queue.Queue
+	titleGen TitleGenerator
+}
+
+func NewHandler(store *Store, manager *llm.Manager, q *queue.Queue, titleGen TitleGenerator) *Handler {
+	return &Handler{store: store, manager: manager, queue: q, titleGen: titleGen}
 }
 
 // Routes returns a chi router with all chat-related routes.
@@ -52,7 +58,6 @@ type chatRequest struct {
 	NoReasoning    bool     `json:"no_reasoning,omitempty"`
 	Retry          bool     `json:"retry,omitempty"`
 }
-
 
 func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	var req chatRequest
@@ -82,12 +87,9 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	// Auto-create or load conversation
 	var conv *Conversation
 	var err error
-	if req.ConversationID == "" {
-		title := req.Content
-		if len(title) > 50 {
-			title = title[:50] + "..."
-		}
-		conv, err = h.store.Create(title)
+	isNewConversation := req.ConversationID == ""
+	if isNewConversation {
+		conv, err = h.store.Create("New chat")
 		if err != nil {
 			writeErrorJSON(w, http.StatusInternalServerError, "store_error",
 				"Failed to create conversation.")
@@ -360,6 +362,11 @@ done:
 		if _, err := h.store.AppendMessage(conv.ID, assistantMsg); err != nil {
 			log.Printf("ERROR: failed to persist assistant message for conv %s: %v", conv.ID, err)
 		}
+	}
+
+	// Generate a title for new conversations asynchronously
+	if isNewConversation && h.titleGen != nil {
+		go h.titleGen.GenerateTitle(conv.ID, req.Content, fullResponse)
 	}
 }
 

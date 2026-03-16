@@ -127,6 +127,20 @@ func (s *Store) Count() int {
 	return count
 }
 
+// UpdateTitle changes the title of a conversation.
+func (s *Store) UpdateTitle(id string, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conv, err := s.load(id)
+	if err != nil {
+		return err
+	}
+	conv.Title = title
+	conv.UpdatedAt = time.Now()
+	return s.save(conv)
+}
+
 // SetModelID sets the model ID for a conversation.
 func (s *Store) SetModelID(id string, modelID string) error {
 	s.mu.Lock()

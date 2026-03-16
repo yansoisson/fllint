@@ -70,7 +70,7 @@ let downloadPollTimer: ReturnType<typeof setInterval> | null = null;
 let providers = $state<Provider[]>([]);
 
 // --- Settings Navigation ---
-type SettingsTab = 'general' | 'models' | 'advanced';
+type SettingsTab = 'general' | 'models' | 'helper' | 'advanced';
 let settingsInitialTab = $state<SettingsTab>('general');
 
 // --- Cross-tab sync ---
@@ -554,6 +554,7 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 	queueItemId = null;
 
 	const effectiveModelId = getEffectiveModelId();
+	const isNewConversation = !activeConversationId;
 
 	try {
 		for await (const token of api.streamChat(
@@ -601,6 +602,11 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 			messages = [...messages, msg];
 		}
 		await loadConversations();
+		// Title generation is async — re-poll to pick up AI-generated title
+		if (isNewConversation) {
+			setTimeout(() => loadConversations(), 3000);
+			setTimeout(() => loadConversations(), 8000);
+		}
 	} catch (err) {
 		if (err instanceof DOMException && err.name === 'AbortError') {
 			if (answerNowRequested) {

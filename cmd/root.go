@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -106,6 +107,23 @@ func Run(frontendFS fs.FS) {
 					}
 					break
 				}
+			}
+		}
+	}()
+
+	// Auto-load summary model in background
+	go func() {
+		if !llmManager.HasBinary() {
+			return
+		}
+		summaryID := cfg.SummaryModelID
+		if summaryID == "" {
+			summaryID = llmManager.AutoDetectHelperModel("Summary")
+		}
+		if summaryID != "" && !strings.HasPrefix(summaryID, "ext:") {
+			log.Printf("Auto-loading summary model %q...", summaryID)
+			if err := llmManager.LoadModel(summaryID); err != nil {
+				log.Printf("Failed to auto-load summary model: %v", err)
 			}
 		}
 	}()

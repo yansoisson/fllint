@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os/exec"
 	"runtime"
@@ -21,6 +22,7 @@ import (
 	"github.com/fllint/fllint/internal/prompt"
 	"github.com/fllint/fllint/internal/provider"
 	"github.com/fllint/fllint/internal/queue"
+	"github.com/fllint/fllint/internal/summary"
 	"github.com/fllint/fllint/internal/version"
 )
 
@@ -50,6 +52,7 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 	}
 
 	inferenceQueue := queue.NewQueue(llmManager)
+	summaryService := summary.NewService(chatStore, llmManager, inferenceQueue)
 
 	s := &Server{
 		router:        chi.NewRouter(),
@@ -68,7 +71,7 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 
 	// API routes
 	s.router.Route("/api", func(r chi.Router) {
-		chatHandler := chat.NewHandler(chatStore, llmManager, inferenceQueue)
+		chatHandler := chat.NewHandler(chatStore, llmManager, inferenceQueue, summaryService)
 		r.Mount("/", chatHandler.Routes())
 
 		r.Get("/models", s.listModels)
@@ -109,6 +112,14 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 		r.Post("/providers/{id}/test", s.testProvider)
 		r.Post("/providers/{id}/fetch-models", s.fetchProviderModels)
 		r.Post("/providers/{id}/models", s.saveProviderModels)
+
+		// Helper models
+		r.Get("/helper-models", s.listHelperModels)
+		r.Put("/helper-models/config", s.updateHelperConfig)
+
+		r.Get("/summary-prompt", s.getSummaryPrompt)
+		r.Put("/summary-prompt", s.updateSummaryPrompt)
+		r.Get("/summary-prompt/default", s.getDefaultSummaryPrompt)
 
 		r.Get("/version", s.getVersion)
 		r.Post("/check-update", s.checkUpdate)
@@ -546,6 +557,136 @@ func (s *Server) saveProviderModels(w http.ResponseWriter, r *http.Request) {
 	}
 	s.llmManager.RefreshExternalModels()
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// --- Helper model handlers ---
+
+type helperSlotResponse struct {
+	Slot              string              `json:"slot"`
+	AvailableModels   []helperModelOption `json:"available_models"`
+	ConfiguredModelID string              `json:"configured_model_id"`
+	Enabled           bool                `json:"enabled"`
+}
+
+type helperModelOption struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Size     int64  `json:"size,omitempty"`
+	External bool   `json:"external"`
+}
+
+func (s *Server) listHelperModels(w http.ResponseWriter, r *http.Request) {
+	helperModels := s.llmManager.ListHelperModels()
+	cfg := config.Get()
+
+	var slots []helperSlotResponse
+	for _, slot := range llm.HelperSlots {
+		models := helperModels[slot]
+		var options []helperModelOption
+		for _, m := range models {
+			options = append(options, helperModelOption{
+				ID:       m.ID,
+				Name:     m.Name,
+				Size:     m.Size,
+				External: m.External,
+			})
+		}
+		if options == nil {
+			options = []helperModelOption{}
+		}
+
+		configuredID := ""
+		enabled := false
+		switch slot {
+		case "Summary":
+			configuredID = cfg.SummaryModelID
+			if configuredID == "" {
+				configuredID = s.llmManager.AutoDetectHelperModel("Summary")
+			}
+			enabled = true
+		}
+
+		slots = append(slots, helperSlotResponse{
+			Slot:              slot,
+			AvailableModels:   options,
+			ConfiguredModelID: configuredID,
+			Enabled:           enabled,
+		})
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"slots": slots})
+}
+
+func (s *Server) updateHelperConfig(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SummaryModelID *string `json:"summary_model_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+
+	cfg := config.Get()
+	updated := *cfg
+
+	if req.SummaryModelID != nil {
+		updated.SummaryModelID = *req.SummaryModelID
+	}
+
+	if err := config.Save(&updated); err != nil {
+		respondErrorJSON(w, http.StatusInternalServerError, "config_error", "Failed to save configuration.")
+		return
+	}
+	s.cfg = config.Get()
+
+	// If a local summary model was selected, auto-load it in the background
+	if req.SummaryModelID != nil && *req.SummaryModelID != "" && !strings.HasPrefix(*req.SummaryModelID, "ext:") {
+		go func() {
+			if err := s.llmManager.LoadModel(*req.SummaryModelID); err != nil {
+				log.Printf("Failed to load summary model %q: %v", *req.SummaryModelID, err)
+			}
+		}()
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// --- Summary prompt handlers ---
+
+func (s *Server) getSummaryPrompt(w http.ResponseWriter, r *http.Request) {
+	content, err := prompt.ReadSummaryPrompt(s.cfg.DataDir)
+	if err != nil {
+		respondErrorJSON(w, http.StatusInternalServerError, "prompt_error", "Failed to read summary prompt.")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{
+		"prompt":     content,
+		"is_default": content == prompt.DefaultSummaryPrompt,
+	})
+}
+
+func (s *Server) updateSummaryPrompt(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+	if err := prompt.WriteSummaryPrompt(s.cfg.DataDir, req.Prompt); err != nil {
+		respondErrorJSON(w, http.StatusInternalServerError, "prompt_error", "Failed to save summary prompt.")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{
+		"prompt":     req.Prompt,
+		"is_default": req.Prompt == prompt.DefaultSummaryPrompt,
+	})
+}
+
+func (s *Server) getDefaultSummaryPrompt(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]string{
+		"prompt": prompt.DefaultSummaryPrompt,
+	})
 }
 
 // --- Version handler ---

@@ -78,9 +78,9 @@ type LlamaCppEngine struct {
 	// Runtime state (guarded by mu)
 	state        EngineState
 	loadProgress float64 // 0.0–1.0, updated during model loading from /health
-	stateErr error
-	cmd      *exec.Cmd
-	cancel   context.CancelFunc
+	stateErr     error
+	cmd          *exec.Cmd
+	cancel       context.CancelFunc
 
 	// processDone is closed when the supervise goroutine exits (process fully reaped).
 	// Stop() waits on this instead of calling cmd.Wait() a second time.
@@ -512,16 +512,16 @@ type oaiMessage struct {
 }
 
 type oaiRequest struct {
-	Model              string            `json:"model"`
-	Messages           []oaiMessage      `json:"messages"`
-	Stream             bool              `json:"stream"`
-	Temperature        float64           `json:"temperature,omitempty"`
-	TopP               float64           `json:"top_p,omitempty"`
-	TopK               int               `json:"top_k,omitempty"`
-	RepeatPenalty      float64           `json:"repeat_penalty,omitempty"`
-	MaxTokens          int               `json:"max_tokens,omitempty"`
-	Seed               int               `json:"seed,omitempty"`
-	ChatTemplateKwargs map[string]any    `json:"chat_template_kwargs,omitempty"`
+	Model              string         `json:"model"`
+	Messages           []oaiMessage   `json:"messages"`
+	Stream             bool           `json:"stream"`
+	Temperature        float64        `json:"temperature,omitempty"`
+	TopP               float64        `json:"top_p,omitempty"`
+	TopK               int            `json:"top_k,omitempty"`
+	RepeatPenalty      float64        `json:"repeat_penalty,omitempty"`
+	MaxTokens          int            `json:"max_tokens,omitempty"`
+	Seed               int            `json:"seed,omitempty"`
+	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
 }
 
 type oaiContentPart struct {

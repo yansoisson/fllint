@@ -66,12 +66,18 @@ type ManagerStatus struct {
 	LoadProgress float64 `json:"load_progress,omitempty"`
 }
 
+// helperDirName is the obfuscated directory containing helper model subdirectories.
+const helperDirName = "Helper-hewrow-Nipju6-mecnop"
+
+// HelperSlots lists the supported helper model slots.
+var HelperSlots = []string{"Summary", "OCR", "Embedding"}
+
 // Manager handles model discovery and engine lifecycle.
 // It supports multiple concurrent llama-server processes, one per loaded model,
 // as well as external engines that talk to remote model servers.
 type Manager struct {
-	mu       sync.RWMutex
-	loadMu   sync.Mutex // serialises LoadModel/UnloadModel calls without blocking reads
+	mu     sync.RWMutex
+	loadMu sync.Mutex // serialises LoadModel/UnloadModel calls without blocking reads
 
 	engines         map[string]*EngineEntry    // modelID -> running local engine
 	externalEngines map[string]*ExternalEngine // modelID -> external engine (always ready)
@@ -105,11 +111,17 @@ func NewManager(serverBinaryPath string, modelsDir string, dataDir string, provi
 	}
 
 	m.models = m.scanModels()
+	helperModels := m.scanHelperModels()
+	m.models = append(m.models, helperModels...)
 
-	if len(m.models) == 0 {
+	mainCount := len(m.models) - len(helperModels)
+	if mainCount == 0 {
 		log.Printf("No .gguf model files found in %q", modelsDir)
 	} else {
-		log.Printf("Found %d model(s) in %s", len(m.models), modelsDir)
+		log.Printf("Found %d model(s) in %s", mainCount, modelsDir)
+	}
+	if len(helperModels) > 0 {
+		log.Printf("Found %d helper model(s)", len(helperModels))
 	}
 
 	return m
@@ -153,6 +165,10 @@ func (m *Manager) scanModels() []ModelInfo {
 
 	for _, entry := range entries {
 		if entry.IsDir() {
+			// Skip the helper models directory — scanned separately
+			if entry.Name() == helperDirName {
+				continue
+			}
 			// Scan subdirectory for a model + optional mmproj
 			found := m.scanModelDir(filepath.Join(m.modelsDir, entry.Name()))
 			if found != nil {
@@ -302,6 +318,46 @@ func commonPrefixLen(a, b string) int {
 	return n
 }
 
+// scanHelperModels finds helper model .gguf files in the helper directory.
+// Helper models live in {modelsDir}/{helperDirName}/{slot}/ subdirectories.
+func (m *Manager) scanHelperModels() []ModelInfo {
+	var models []ModelInfo
+	for _, slot := range HelperSlots {
+		slotDir := filepath.Join(m.modelsDir, helperDirName, slot)
+		entries, err := os.ReadDir(slotDir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			if !strings.HasSuffix(strings.ToLower(entry.Name()), ".gguf") {
+				continue
+			}
+			if strings.Contains(strings.ToLower(entry.Name()), "mmproj") {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			modelID := helperDirName + "/" + slot + "/" + entry.Name()
+			meta := loadOrCreateModelMeta(slotDir, modelNameFromFilename(entry.Name()))
+			models = append(models, ModelInfo{
+				ID:         modelID,
+				Name:       meta.Name,
+				FilePath:   filepath.Join(slotDir, entry.Name()),
+				Size:       info.Size(),
+				Tier:       TierHelper,
+				Helper:     true,
+				HelperSlot: slot,
+			})
+		}
+	}
+	return models
+}
+
 // RefreshModels rescans the models directory. Useful after the user adds
 // new model files while the app is running.
 func (m *Manager) RefreshModels() {
@@ -314,6 +370,7 @@ func (m *Manager) RefreshModels() {
 	}
 
 	m.models = m.scanModels()
+	m.models = append(m.models, m.scanHelperModels()...)
 
 	// Mark models that have running engines or are the default as active
 	for i := range m.models {
@@ -558,8 +615,8 @@ func (m *Manager) autoUnloadForSpace(requiredBytes int64) {
 	m.mu.RLock()
 	// Build list of candidates sorted by LastUsedAt ascending (oldest first)
 	type candidate struct {
-		modelID    string
-		lastUsed   time.Time
+		modelID     string
+		lastUsed    time.Time
 		memEstimate int64
 	}
 	var candidates []candidate
@@ -575,8 +632,8 @@ func (m *Manager) autoUnloadForSpace(requiredBytes int64) {
 			est = memory.EstimateModelRAM(mi.Size)
 		}
 		candidates = append(candidates, candidate{
-			modelID:    id,
-			lastUsed:   entry.LastUsedAt,
+			modelID:     id,
+			lastUsed:    entry.LastUsedAt,
 			memEstimate: est,
 		})
 	}
@@ -652,21 +709,28 @@ func (m *Manager) Engine() Engine {
 }
 
 // ListModels returns a copy of the discovered model list with loaded status,
-// including external models from providers.
+// including external models from providers. Helper models are excluded.
 func (m *Manager) ListModels() []ModelInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	result := make([]ModelInfo, len(m.models))
-	copy(result, m.models)
-	for i := range result {
-		if _, ok := m.engines[result[i].ID]; ok {
-			result[i].Loaded = true
+	var result []ModelInfo
+	for _, mi := range m.models {
+		if mi.Helper {
+			continue
 		}
+		copy := mi
+		if _, ok := m.engines[copy.ID]; ok {
+			copy.Loaded = true
+		}
+		result = append(result, copy)
 	}
 
-	// Append external models (always loaded)
+	// Append external models assigned to the "main" role (always loaded)
 	for modelID, engine := range m.externalEngines {
+		if !engine.HasRole("main") {
+			continue
+		}
 		result = append(result, ModelInfo{
 			ID:         modelID,
 			Name:       engine.ModelName(),
@@ -679,6 +743,70 @@ func (m *Manager) ListModels() []ModelInfo {
 	}
 
 	return result
+}
+
+// ListHelperModels returns helper models grouped by slot. Each slot includes
+// local models from the slot directory and external models assigned to that role.
+func (m *Manager) ListHelperModels() map[string][]ModelInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Map slot names to provider role names
+	slotToRole := map[string]string{
+		"Summary":   "summary",
+		"OCR":       "ocr",
+		"Embedding": "embedding",
+	}
+
+	result := make(map[string][]ModelInfo)
+	for _, slot := range HelperSlots {
+		result[slot] = []ModelInfo{}
+	}
+
+	// Add discovered local helper models
+	for _, mi := range m.models {
+		if !mi.Helper {
+			continue
+		}
+		copy := mi
+		if _, ok := m.engines[copy.ID]; ok {
+			copy.Loaded = true
+		}
+		result[copy.HelperSlot] = append(result[copy.HelperSlot], copy)
+	}
+
+	// Add external models assigned to each slot's role
+	for modelID, engine := range m.externalEngines {
+		for _, slot := range HelperSlots {
+			role := slotToRole[slot]
+			if engine.HasRole(role) {
+				result[slot] = append(result[slot], ModelInfo{
+					ID:         modelID,
+					Name:       engine.ModelName(),
+					Tier:       TierExternal,
+					External:   true,
+					ProviderID: engine.providerID,
+					Loaded:     true,
+				})
+			}
+		}
+	}
+
+	return result
+}
+
+// AutoDetectHelperModel returns the first discovered local model ID for
+// the given helper slot, or empty string if none found.
+func (m *Manager) AutoDetectHelperModel(slot string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, mi := range m.models {
+		if mi.Helper && mi.HelperSlot == slot {
+			return mi.ID
+		}
+	}
+	return ""
 }
 
 // SetActive ensures the given model is loaded, then sets it as the default.
@@ -959,11 +1087,12 @@ func (m *Manager) RefreshExternalModels() {
 		}
 		for _, model := range p.Models {
 			modelID := fmt.Sprintf("ext:%s:%s", p.ID, model.Name)
-			// Reuse existing engine if already registered (avoids unnecessary churn)
+			// Reuse existing engine if already registered and roles match
 			if existing, ok := m.externalEngines[modelID]; ok {
+				existing.roles = model.Roles
 				newEngines[modelID] = existing
 			} else {
-				newEngines[modelID] = NewExternalEngine(p.BaseURL, p.APIKey, model.Name, p.ID, m.dataDir)
+				newEngines[modelID] = NewExternalEngine(p.BaseURL, p.APIKey, model.Name, p.ID, m.dataDir, model.Roles)
 			}
 		}
 	}
@@ -975,17 +1104,17 @@ func (m *Manager) RefreshExternalModels() {
 
 // MemoryStatus represents memory usage information for the API.
 type MemoryStatus struct {
-	System      *memory.MemoryInfo  `json:"system"`
+	System       *memory.MemoryInfo `json:"system"`
 	UsedByModels int64              `json:"used_by_models"` // estimated bytes used by loaded models
 	Models       []ModelMemoryInfo  `json:"models"`         // per-model estimates
 }
 
 // ModelMemoryInfo describes memory usage estimate for a single model.
 type ModelMemoryInfo struct {
-	ModelID       string `json:"model_id"`
-	ModelName     string `json:"model_name"`
-	EstimatedRAM  int64  `json:"estimated_ram"`
-	Loaded        bool   `json:"loaded"`
+	ModelID      string `json:"model_id"`
+	ModelName    string `json:"model_name"`
+	EstimatedRAM int64  `json:"estimated_ram"`
+	Loaded       bool   `json:"loaded"`
 }
 
 // MemoryStatus returns current memory info with per-model estimates.

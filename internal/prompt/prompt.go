@@ -9,6 +9,11 @@ const DefaultSystemPrompt = "You are Fllint, a helpful, accurate, and concise AI
 	"Be direct and clear in your responses. When you don't know something, say so. " +
 	"Format responses with markdown when it improves readability."
 
+// DefaultSummaryPrompt is the built-in system prompt for the summary model
+// that generates conversation titles.
+const DefaultSummaryPrompt = "Generate a short title (3-5 words) for a conversation. " +
+	"Reply with ONLY the title, nothing else."
+
 // Build composes the final system prompt from the configured system prompt
 // and optional custom instructions.
 //

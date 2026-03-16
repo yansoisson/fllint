@@ -3,10 +3,10 @@ package memory
 // MemoryInfo describes the system's available memory.
 type MemoryInfo struct {
 	TotalRAM      int64 `json:"total_ram"`      // bytes
-	AvailableRAM  int64 `json:"available_ram"`   // bytes
-	TotalVRAM     int64 `json:"total_vram"`      // 0 on Mac (unified memory)
-	AvailableVRAM int64 `json:"available_vram"`  // 0 on Mac (unified memory)
-	IsUnified     bool  `json:"is_unified"`      // true on macOS Apple Silicon
+	AvailableRAM  int64 `json:"available_ram"`  // bytes
+	TotalVRAM     int64 `json:"total_vram"`     // 0 on Mac (unified memory)
+	AvailableVRAM int64 `json:"available_vram"` // 0 on Mac (unified memory)
+	IsUnified     bool  `json:"is_unified"`     // true on macOS Apple Silicon
 }
 
 // SystemReserveBytes is the amount of RAM reserved for the OS and other apps.

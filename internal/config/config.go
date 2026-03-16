@@ -16,11 +16,11 @@ type Config struct {
 	ModelsDir string `json:"models_dir"`
 
 	// General
-	Theme   string `json:"theme"`    // "light", "dark", "system"
+	Theme   string `json:"theme"` // "light", "dark", "system"
 	ProMode bool   `json:"pro_mode"`
 
 	// Model Selector
-	PinnedModels   []string `json:"pinned_models"`             // model IDs shown in main selector (ordered)
+	PinnedModels   []string `json:"pinned_models"`              // model IDs shown in main selector (ordered)
 	DefaultModelID string   `json:"default_model_id,omitempty"` // model to load on startup
 
 	// Chat Behavior
@@ -41,12 +41,15 @@ type Config struct {
 
 	// External Models
 	ForwardParamsToExternal bool `json:"forward_params_to_external"` // send inference params to external providers
+
+	// Helper Models
+	SummaryModelID string `json:"summary_model_id,omitempty"` // model for generating conversation titles
 }
 
 var (
-	mu                  sync.RWMutex
-	cfg                 *Config
-	legacySystemPrompt  string
+	mu                 sync.RWMutex
+	cfg                *Config
+	legacySystemPrompt string
 )
 
 // LegacySystemPrompt returns the system_prompt value from a pre-migration config.json,

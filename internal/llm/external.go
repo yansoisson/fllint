@@ -22,21 +22,37 @@ type ExternalEngine struct {
 	modelName  string
 	providerID string
 	dataDir    string
+	roles      []string // assigned roles (e.g. "main", "summary")
 	httpClient *http.Client
 }
 
 // NewExternalEngine creates an engine that talks to an external server.
-func NewExternalEngine(baseURL, apiKey, modelName, providerID, dataDir string) *ExternalEngine {
+func NewExternalEngine(baseURL, apiKey, modelName, providerID, dataDir string, roles []string) *ExternalEngine {
 	return &ExternalEngine{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		modelName:  modelName,
 		providerID: providerID,
 		dataDir:    dataDir,
+		roles:      roles,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute,
 		},
 	}
+}
+
+// HasRole checks if this engine is assigned to the given role.
+// Engines with no roles default to "main" for backward compatibility.
+func (e *ExternalEngine) HasRole(role string) bool {
+	if len(e.roles) == 0 {
+		return role == "main"
+	}
+	for _, r := range e.roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
 }
 
 // ChatStream implements Engine. It POSTs to the server's OpenAI-compatible
