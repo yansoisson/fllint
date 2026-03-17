@@ -115,6 +115,12 @@ DATA="$DIST/Data"
 mkdir -p "$DATA/models"
 mkdir -p "$DATA/conversations"
 
+# Copy default system prompt files so advanced users can edit them
+PROMPTS_SRC="$PROJECT_ROOT/internal/prompt/defaults"
+cp "$PROMPTS_SRC/system-prompt.md" "$DATA/system-prompt.md"
+cp "$PROMPTS_SRC/summary-prompt.md" "$DATA/summary-prompt.md"
+echo "Prompts: copied default system-prompt.md and summary-prompt.md"
+
 # Step 8: Copy models (if any exist in project models dir)
 MODELS_SRC="$PROJECT_ROOT/models"
 if [ -d "$MODELS_SRC" ]; then
