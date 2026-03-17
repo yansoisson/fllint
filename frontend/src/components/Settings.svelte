@@ -419,30 +419,22 @@
 		error = null;
 		try {
 			config = await api.getConfig();
-			await Promise.all([loadModels(), loadStatus(), loadDownloadRegistry(), loadProviders()]);
-			try {
-				providerTypes = await api.listProviderTypes();
-			} catch { providerTypes = []; }
-			try {
-				const sp = await api.getSystemPrompt();
-				systemPrompt = sp.prompt;
-				systemPromptIsDefault = sp.is_default;
-				defaultPrompt = await api.getDefaultSystemPrompt();
-			} catch {
-				defaultPrompt = '';
-			}
-			try {
-				const v = await api.getVersion();
-				appVersion = v.version;
-			} catch {
-				appVersion = null;
-			}
 		} catch (err) {
 			console.error('Failed to load settings:', err);
 			error = 'Failed to load settings. Please try again.';
 		} finally {
 			loading = false;
 		}
+		if (!config) return;
+		// Load secondary data in the background — tab content is already visible
+		Promise.all([loadModels(), loadStatus(), loadDownloadRegistry(), loadProviders()]).catch(() => {});
+		api.listProviderTypes().then((t) => { providerTypes = t; }).catch(() => { providerTypes = []; });
+		api.getSystemPrompt().then((sp) => {
+			systemPrompt = sp.prompt;
+			systemPromptIsDefault = sp.is_default;
+		}).catch(() => {});
+		api.getDefaultSystemPrompt().then((dp) => { defaultPrompt = dp; }).catch(() => { defaultPrompt = ''; });
+		api.getVersion().then((v) => { appVersion = v.version; }).catch(() => { appVersion = null; });
 	}
 
 	async function loadHelperModels() {

@@ -9,7 +9,6 @@
 		getEngineStatus,
 		getChatError,
 		clearChatError,
-		refreshModels,
 		openSettingsToTab,
 		isDownloadActive,
 		getActiveDownloadsState,
@@ -62,30 +61,7 @@
 
 	{#if getMessages().length === 0 && !getIsStreaming()}
 		<div class="empty">
-			{#if !getEngineStatus()?.has_binary && !getEngineStatus()?.has_models}
-				<h2>Welcome to Fllint</h2>
-				<p>To get started, you need two things:</p>
-				<div class="setup-steps">
-					<div class="step">
-						<strong>1. llama-server</strong>
-						<span>Download from llama.cpp releases and place in <code>bin/</code></span>
-					</div>
-					<div class="step">
-						<strong>2. A model file</strong>
-						<span>Download a .gguf model and place in <code>models/</code></span>
-					</div>
-				</div>
-				<button class="refresh-btn" onclick={refreshModels}>
-					I've placed the files — refresh
-				</button>
-			{:else if !getEngineStatus()?.has_binary}
-				<h2>Almost there</h2>
-				<p>
-					Model files found, but llama-server is missing.
-					Place it in the <code>bin/</code> folder.
-				</p>
-				<button class="refresh-btn" onclick={refreshModels}>Refresh</button>
-			{:else if !getEngineStatus()?.has_models && isDownloadActive()}
+			{#if !getEngineStatus()?.has_models && isDownloadActive()}
 				{@const dl = getActiveDownloadsState().find((d) => d.state === 'downloading' || d.state === 'queued')}
 				<h2>Downloading model...</h2>
 				<p>{dl?.display_name ?? 'Model'} — this may take a few minutes.</p>
@@ -100,7 +76,7 @@
 				{/if}
 			{:else if !getEngineStatus()?.has_models}
 				<h2>Welcome to Fllint</h2>
-				<p>Download a local model to get started, or connect an external provider.</p>
+				<p>Download a model to get started, or connect an external provider.</p>
 				<div class="welcome-actions">
 					<button class="refresh-btn" onclick={() => { startModelDownload('lite-qwen3.5-2b'); startDownloadPolling(); }}>
 						Download Lite Model
@@ -109,10 +85,6 @@
 						Browse All Models
 					</button>
 				</div>
-				<p class="manual-hint">
-					Or place a .gguf file in the <code>models/</code> folder manually.
-					<button class="link-btn" onclick={refreshModels}>Refresh</button>
-				</p>
 			{:else if getEngineStatus()?.engine_state === 'starting'}
 				<h2>Loading model...</h2>
 				<p>This can take a minute for larger models.</p>
@@ -164,41 +136,6 @@
 	}
 
 	.empty p {
-		color: var(--text-secondary);
-	}
-
-	.empty code {
-		background: var(--bg-tertiary);
-		padding: 2px 6px;
-		border-radius: 4px;
-		font-size: 0.85em;
-	}
-
-	.setup-steps {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-		margin: 16px 0;
-		text-align: left;
-		max-width: 400px;
-	}
-
-	.step {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		padding: 12px;
-		border-radius: var(--radius);
-		background: var(--bg-secondary);
-		border: 1px solid var(--border);
-	}
-
-	.step strong {
-		color: var(--text-primary);
-	}
-
-	.step span {
-		font-size: 0.9em;
 		color: var(--text-secondary);
 	}
 
@@ -322,21 +259,4 @@
 		background: var(--error-bg-hover);
 	}
 
-	.manual-hint {
-		font-size: 0.85em;
-		color: var(--text-muted);
-		margin-top: 16px;
-	}
-
-	.link-btn {
-		color: var(--accent);
-		font-size: inherit;
-		text-decoration: underline;
-		cursor: pointer;
-		padding: 0;
-	}
-
-	.link-btn:hover {
-		color: var(--accent-hover);
-	}
 </style>
