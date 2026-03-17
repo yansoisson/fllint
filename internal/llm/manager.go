@@ -714,7 +714,7 @@ func (m *Manager) ListModels() []ModelInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var result []ModelInfo
+	result := make([]ModelInfo, 0)
 	for _, mi := range m.models {
 		if mi.Helper {
 			continue
