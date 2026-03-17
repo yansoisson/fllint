@@ -7,6 +7,7 @@
 		getStreamingReasoning,
 		getThinkingDuration,
 		getEngineStatus,
+		getModels,
 		getChatError,
 		clearChatError,
 		openSettingsToTab,
@@ -61,7 +62,7 @@
 
 	{#if getMessages().length === 0 && !getIsStreaming()}
 		<div class="empty">
-			{#if !getEngineStatus()?.has_models && isDownloadActive()}
+			{#if !getEngineStatus()?.has_models && getModels().length === 0 && isDownloadActive()}
 				{@const dl = getActiveDownloadsState().find((d) => d.state === 'downloading' || d.state === 'queued')}
 				<h2>Downloading model...</h2>
 				<p>{dl?.display_name ?? 'Model'} — this may take a few minutes.</p>
@@ -74,7 +75,7 @@
 						<span class="download-pct">{Math.round((dl.done_bytes / dl.total_bytes) * 100)}%</span>
 					</div>
 				{/if}
-			{:else if !getEngineStatus()?.has_models}
+			{:else if !getEngineStatus()?.has_models && getModels().length === 0}
 				<h2>Welcome to Fllint</h2>
 				<p>Download a model to get started, or connect an external provider.</p>
 				<div class="welcome-actions">
