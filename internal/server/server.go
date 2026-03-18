@@ -16,6 +16,7 @@ import (
 
 	"github.com/fllint/fllint/internal/chat"
 	"github.com/fllint/fllint/internal/config"
+	"github.com/fllint/fllint/internal/document"
 	"github.com/fllint/fllint/internal/download"
 	"github.com/fllint/fllint/internal/image"
 	"github.com/fllint/fllint/internal/llm"
@@ -49,6 +50,11 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 	imgHandler, err := image.NewHandler(cfg.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("init image handler: %w", err)
+	}
+
+	docHandler, err := document.NewHandler(cfg.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("init document handler: %w", err)
 	}
 
 	inferenceQueue := queue.NewQueue(llmManager)
@@ -85,6 +91,7 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 		r.Get("/status", s.getStatus)
 
 		r.Post("/image/upload", imgHandler.Upload)
+		r.Post("/document/upload", docHandler.Upload)
 		r.Handle("/uploads/*", imgHandler.Serve())
 
 		r.Get("/config", s.getConfig)

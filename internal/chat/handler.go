@@ -50,13 +50,20 @@ func (h *Handler) Routes() chi.Router {
 	return r
 }
 
+type documentAttachment struct {
+	Filename string `json:"filename"`
+	URL      string `json:"url"`
+	Text     string `json:"text"`
+}
+
 type chatRequest struct {
-	ConversationID string   `json:"conversation_id"`
-	Content        string   `json:"content"`
-	Images         []string `json:"images,omitempty"`
-	ModelID        string   `json:"model_id,omitempty"`
-	NoReasoning    bool     `json:"no_reasoning,omitempty"`
-	Retry          bool     `json:"retry,omitempty"`
+	ConversationID string               `json:"conversation_id"`
+	Content        string               `json:"content"`
+	Images         []string             `json:"images,omitempty"`
+	Documents      []documentAttachment `json:"documents,omitempty"`
+	ModelID        string               `json:"model_id,omitempty"`
+	NoReasoning    bool                 `json:"no_reasoning,omitempty"`
+	Retry          bool                 `json:"retry,omitempty"`
 }
 
 func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
@@ -66,8 +73,8 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Content == "" && len(req.Images) == 0 {
-		writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Message content or at least one image is required.")
+	if req.Content == "" && len(req.Images) == 0 && len(req.Documents) == 0 {
+		writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Message content, image, or document is required.")
 		return
 	}
 
@@ -80,6 +87,23 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		filename := strings.TrimPrefix(imgURL, "/api/uploads/")
 		if strings.Contains(filename, "/") || strings.Contains(filename, "..") || filename == "" {
 			writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid image URL: contains invalid characters.")
+			return
+		}
+	}
+
+	// Validate document attachments
+	for _, doc := range req.Documents {
+		if !strings.HasPrefix(doc.URL, "/api/uploads/") {
+			writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid document URL: must start with /api/uploads/")
+			return
+		}
+		filename := strings.TrimPrefix(doc.URL, "/api/uploads/")
+		if strings.Contains(filename, "/") || strings.Contains(filename, "..") || filename == "" {
+			writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid document URL: contains invalid characters.")
+			return
+		}
+		if doc.Filename == "" || doc.Text == "" {
+			writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Document filename and text are required.")
 			return
 		}
 	}
@@ -159,7 +183,15 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// Append user message
-		userMsg := llm.ChatMessage{Role: "user", Content: req.Content, Images: req.Images}
+		var docs []llm.DocumentAttachment
+		for _, d := range req.Documents {
+			docs = append(docs, llm.DocumentAttachment{
+				Filename: d.Filename,
+				URL:      d.URL,
+				Text:     d.Text,
+			})
+		}
+		userMsg := llm.ChatMessage{Role: "user", Content: req.Content, Images: req.Images, Documents: docs}
 		conv, err = h.store.AppendMessage(conv.ID, userMsg)
 		if err != nil {
 			writeErrorJSON(w, http.StatusInternalServerError, "store_error",

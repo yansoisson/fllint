@@ -16,6 +16,13 @@
 				{/each}
 			</div>
 		{/if}
+		{#if message.documents?.length}
+			<div class="documents">
+				{#each message.documents as doc}
+					<span class="doc-chip">{doc.filename}</span>
+				{/each}
+			</div>
+		{/if}
 		{#if message.content}
 			<div class="content">{message.content}</div>
 		{/if}
@@ -67,6 +74,28 @@
 		border-radius: 12px;
 		border: 1px solid var(--border);
 		object-fit: cover;
+	}
+
+	.documents {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		justify-content: flex-end;
+		margin-bottom: 8px;
+	}
+
+	.doc-chip {
+		display: inline-block;
+		padding: 4px 12px;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
+		max-width: 200px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.assistant {

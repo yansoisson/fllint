@@ -1,11 +1,21 @@
 <script lang="ts">
 	import ImagePreview from './ImagePreview.svelte';
-	import { sendMessage, getIsStreaming, cancelStream, cancelQueueItem, addPendingImage, getPendingImages, getQueuePosition, isEffectiveModelLoading, getEffectiveModelId, getModels } from '$lib/stores.svelte';
+	import DocumentPreview from './DocumentPreview.svelte';
+	import { sendMessage, getIsStreaming, cancelStream, cancelQueueItem, addPendingImage, getPendingImages, addPendingDocument, getPendingDocuments, getQueuePosition, isEffectiveModelLoading, getEffectiveModelId, getModels } from '$lib/stores.svelte';
 
 	let inputText = $state('');
 	let fileInput: HTMLInputElement;
 	let textareaEl: HTMLTextAreaElement;
 	let isDragOver = $state(false);
+
+	const DOCUMENT_EXTENSIONS = new Set([
+		'.txt', '.md', '.csv', '.json', '.xml', '.yaml', '.yml', '.toml', '.log',
+		'.go', '.js', '.ts', '.jsx', '.tsx', '.py', '.rs', '.c', '.cpp', '.h',
+		'.hpp', '.java', '.rb', '.php', '.swift', '.kt', '.sh', '.bash', '.zsh',
+		'.css', '.scss', '.html', '.sql', '.r', '.lua', '.pl', '.ex', '.exs',
+		'.hs', '.ml', '.scala', '.dart', '.conf', '.cfg', '.ini', '.svelte', '.vue',
+		'.pdf', '.docx'
+	]);
 
 	function autoResize() {
 		if (textareaEl) {
@@ -20,9 +30,14 @@
 		return m?.vision || m?.external;
 	});
 
+	function getFileExtension(name: string): string {
+		const dot = name.lastIndexOf('.');
+		return dot >= 0 ? name.slice(dot).toLowerCase() : '';
+	}
+
 	async function handleSubmit() {
 		const text = inputText.trim();
-		if ((!text && getPendingImages().length === 0) || getIsStreaming() || modelLoading) return;
+		if ((!text && getPendingImages().length === 0 && getPendingDocuments().length === 0) || getIsStreaming() || modelLoading) return;
 
 		inputText = '';
 		if (textareaEl) {
@@ -38,14 +53,23 @@
 		}
 	}
 
+	function routeFile(file: File) {
+		if (file.type.startsWith('image/')) {
+			if (canAttachImage) addPendingImage(file);
+			return;
+		}
+		const ext = getFileExtension(file.name);
+		if (DOCUMENT_EXTENSIONS.has(ext)) {
+			addPendingDocument(file);
+		}
+	}
+
 	function handleFileChange(e: Event) {
 		const target = e.target as HTMLInputElement;
 		const files = target.files;
 		if (files) {
 			for (const file of files) {
-				if (file.type.startsWith('image/')) {
-					addPendingImage(file);
-				}
+				routeFile(file);
 			}
 		}
 		target.value = '';
@@ -66,9 +90,7 @@
 		const files = e.dataTransfer?.files;
 		if (files) {
 			for (const file of files) {
-				if (file.type.startsWith('image/')) {
-					addPendingImage(file);
-				}
+				routeFile(file);
 			}
 		}
 	}
@@ -101,16 +123,15 @@
 			</div>
 		{/if}
 		<ImagePreview />
+		<DocumentPreview />
 		<div class="input-row">
-			{#if canAttachImage}
-				<button class="attach-btn" onclick={() => fileInput.click()} title="Attach image" aria-label="Attach image">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<line x1="12" y1="5" x2="12" y2="19" />
-						<line x1="5" y1="12" x2="19" y2="12" />
-					</svg>
-				</button>
-				<input type="file" accept="image/*" multiple bind:this={fileInput} onchange={handleFileChange} hidden />
-			{/if}
+			<button class="attach-btn" onclick={() => fileInput.click()} title="Attach file" aria-label="Attach file">
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<line x1="12" y1="5" x2="12" y2="19" />
+					<line x1="5" y1="12" x2="19" y2="12" />
+				</svg>
+			</button>
+			<input type="file" multiple bind:this={fileInput} onchange={handleFileChange} hidden />
 			<textarea
 				bind:this={textareaEl}
 				bind:value={inputText}
@@ -135,7 +156,7 @@
 				<button
 					class="send-btn"
 					onclick={handleSubmit}
-					disabled={modelLoading || (!inputText.trim() && getPendingImages().length === 0)}
+					disabled={modelLoading || (!inputText.trim() && getPendingImages().length === 0 && getPendingDocuments().length === 0)}
 					title="Send message"
 					aria-label="Send message"
 				>

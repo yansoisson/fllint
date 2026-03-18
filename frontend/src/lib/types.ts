@@ -1,9 +1,24 @@
+export interface DocumentAttachment {
+	filename: string;
+	url: string;
+	text: string;
+}
+
+export interface DocumentUploadResult {
+	id: string;
+	filename: string;
+	url: string;
+	original_name: string;
+	extracted_text: string;
+}
+
 export interface ChatMessage {
 	role: 'user' | 'assistant' | 'system';
 	content: string;
 	reasoning?: string;
 	thinking_duration?: number;
 	images?: string[];
+	documents?: DocumentAttachment[];
 }
 
 export interface Conversation {

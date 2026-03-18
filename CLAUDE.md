@@ -10,6 +10,10 @@ Push to github is already configured too (just use git push -u origin main to pu
 
 The project should respect the computer of the user. It should be possible to terminate all background processes by quitting the app. And on MacOS, the "Fllint" text on the bottom should disappear if the app isn't active anymore, and, as mentioned earlier, the one folder structure is essential. 
 
+## Known Issues
+
+- **Vite HMR can leave the UI broken** (sidebar full-screen, main content invisible with width 0). After making frontend changes during `make dev`, always clear the Vite cache (`rm -rf frontend/node_modules/.vite`) and tell the user to hard-refresh the browser (`Cmd+Shift+R` on macOS). This is a recurring Safari issue.
+
 ## Build & Development Commands
 
 ```bash

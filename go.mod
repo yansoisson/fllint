@@ -10,4 +10,7 @@ require (
 	golang.org/x/sys v0.15.0
 )
 
-require github.com/godbus/dbus/v5 v5.1.0 // indirect
+require (
+	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
+)

@@ -1,4 +1,4 @@
-import type { Conversation, ChatMessage, ModelInfo, EngineStatus, MemoryInfo, MemoryErrorInfo, RegistryModel, DownloadStatus, Provider } from './types';
+import type { Conversation, ChatMessage, ModelInfo, EngineStatus, MemoryInfo, MemoryErrorInfo, RegistryModel, DownloadStatus, Provider, DocumentAttachment } from './types';
 import { goto } from '$app/navigation';
 import * as api from './api';
 import { InsufficientMemoryError } from './api';
@@ -17,6 +17,7 @@ let streamAbortController: AbortController | null = null;
 let answerNowRequested = false;
 let lastSentContent = '';
 let lastSentImages: string[] = [];
+let lastSentDocuments: DocumentAttachment[] = [];
 
 // --- Queue ---
 let queuePosition = $state<number | null>(null);
@@ -56,6 +57,7 @@ let appVersion = $state<string | null>(null);
 let sidebarOpen = $state(true);
 let settingsOpen = $state(false);
 let pendingImages = $state<{ file: File; preview: string }[]>([]);
+let pendingDocuments = $state<{ file: File; name: string }[]>([]);
 let chatError = $state<string | null>(null);
 let initError = $state<string | null>(null);
 let notification = $state<{ message: string; type: 'error' | 'info' } | null>(null);
@@ -453,6 +455,22 @@ export function clearPendingImages() {
 	pendingImages = [];
 }
 
+export function getPendingDocuments() {
+	return pendingDocuments;
+}
+
+export function addPendingDocument(file: File) {
+	pendingDocuments = [...pendingDocuments, { file, name: file.name }];
+}
+
+export function removePendingDocument(index: number) {
+	pendingDocuments = pendingDocuments.filter((_, i) => i !== index);
+}
+
+export function clearPendingDocuments() {
+	pendingDocuments = [];
+}
+
 export async function loadConversations() {
 	try {
 		conversations = await api.listConversations();
@@ -514,8 +532,9 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 
 	const noReasoning = opts?.noReasoning ?? false;
 
-	// Upload pending images first (skip if re-sending for answer-now)
+	// Upload pending images and documents first (skip if re-sending for answer-now)
 	let imageUrls: string[] = [];
+	let documentAttachments: DocumentAttachment[] = [];
 	if (!noReasoning) {
 		if (pendingImages.length > 0) {
 			try {
@@ -530,19 +549,41 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 			clearPendingImages();
 		}
 
-		// Build user message with images for local display
+		if (pendingDocuments.length > 0) {
+			try {
+				const uploads = await Promise.all(
+					pendingDocuments.map((doc) => api.uploadDocument(doc.file))
+				);
+				documentAttachments = uploads.map((result) => ({
+					filename: result.original_name,
+					url: result.url,
+					text: result.extracted_text
+				}));
+			} catch (err) {
+				chatError = err instanceof Error ? err.message : 'Failed to upload document. Please try again.';
+				return;
+			}
+			clearPendingDocuments();
+		}
+
+		// Build user message with images and documents for local display
 		const userMsg: ChatMessage = { role: 'user', content };
 		if (imageUrls.length > 0) {
 			userMsg.images = imageUrls;
+		}
+		if (documentAttachments.length > 0) {
+			userMsg.documents = documentAttachments;
 		}
 		messages = [...messages, userMsg];
 
 		// Track what was sent so answerNow can re-use it
 		lastSentContent = content;
 		lastSentImages = imageUrls;
+		lastSentDocuments = documentAttachments;
 	} else {
-		// Re-sending: use the previously tracked images
+		// Re-sending: use the previously tracked images and documents
 		imageUrls = lastSentImages;
+		documentAttachments = lastSentDocuments;
 	}
 
 	isStreaming = true;
@@ -561,6 +602,7 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 			content,
 			activeConversationId ?? undefined,
 			imageUrls.length > 0 ? imageUrls : undefined,
+			documentAttachments.length > 0 ? documentAttachments : undefined,
 			effectiveModelId ?? undefined,
 			streamAbortController.signal,
 			noReasoning ? { noReasoning: true, retry: true } : undefined

@@ -4,6 +4,8 @@ import type {
 	AppConfig,
 	SSEToken,
 	ImageUploadResult,
+	DocumentUploadResult,
+	DocumentAttachment,
 	EngineStatus,
 	MemoryInfo,
 	MemoryErrorInfo,
@@ -66,6 +68,7 @@ export async function* streamChat(
 	content: string,
 	conversationId?: string,
 	images?: string[],
+	documents?: DocumentAttachment[],
 	modelId?: string,
 	signal?: AbortSignal,
 	opts?: { noReasoning?: boolean; retry?: boolean }
@@ -77,6 +80,7 @@ export async function* streamChat(
 			content,
 			conversation_id: conversationId ?? '',
 			images: images?.length ? images : undefined,
+			documents: documents?.length ? documents : undefined,
 			model_id: modelId || undefined,
 			no_reasoning: opts?.noReasoning || undefined,
 			retry: opts?.retry || undefined
@@ -186,6 +190,22 @@ export async function uploadImage(file: File): Promise<ImageUploadResult> {
 		body: form
 	});
 	if (!res.ok) throw new Error('Upload failed');
+	return res.json();
+}
+
+// --- Document Upload ---
+
+export async function uploadDocument(file: File): Promise<DocumentUploadResult> {
+	const form = new FormData();
+	form.append('document', file);
+	const res = await fetch(`${BASE}/document/upload`, {
+		method: 'POST',
+		body: form
+	});
+	if (!res.ok) {
+		const body = await res.json().catch(() => null);
+		throw new Error(body?.error ?? 'Document upload failed');
+	}
 	return res.json();
 }
 
