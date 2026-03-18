@@ -460,6 +460,7 @@ export function getPendingDocuments() {
 }
 
 export function addPendingDocument(file: File) {
+	if (pendingDocuments.some((d) => d.name === file.name)) return;
 	pendingDocuments = [...pendingDocuments, { file, name: file.name }];
 }
 
