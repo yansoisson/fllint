@@ -13,6 +13,7 @@ The project should respect the computer of the user. It should be possible to te
 ## Known Issues
 
 - **Vite HMR can leave the UI broken** (sidebar full-screen, main content invisible with width 0). After making frontend changes during `make dev`, always clear the Vite cache (`rm -rf frontend/node_modules/.vite`) and tell the user to hard-refresh the browser (`Cmd+Shift+R` on macOS). This is a recurring Safari issue.
+- **Version tag must match code**: When creating a git tag (e.g. `v0.4.8`), the version in `internal/version/version.go` MUST match (e.g. `"0.4.8"`). The CI workflow checks this and fails if they differ. Always bump `version.go` in the same commit or before tagging.
 
 ## Build & Development Commands
 
