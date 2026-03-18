@@ -150,4 +150,85 @@
 	.prose :global(h3) {
 		font-size: 1.1rem;
 	}
+
+	/* Tables */
+	.prose :global(table) {
+		border-collapse: collapse;
+		width: max-content;
+		max-width: 100%;
+		margin: 12px 0;
+		font-size: 0.9em;
+		display: block;
+		overflow-x: auto;
+	}
+
+	.prose :global(th),
+	.prose :global(td) {
+		border: 1px solid var(--border);
+		padding: 8px 12px;
+		text-align: left;
+	}
+
+	.prose :global(th) {
+		background: var(--bg-secondary);
+		font-weight: 600;
+	}
+
+	/* Blockquotes */
+	.prose :global(blockquote) {
+		border-left: 3px solid var(--border);
+		padding: 4px 16px;
+		margin: 12px 0;
+		color: var(--text-secondary);
+	}
+
+	.prose :global(blockquote p) {
+		margin-bottom: 4px;
+	}
+
+	/* Horizontal rules */
+	.prose :global(hr) {
+		border: none;
+		border-top: 1px solid var(--border);
+		margin: 16px 0;
+	}
+
+	/* Links */
+	.prose :global(a) {
+		color: var(--accent);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.prose :global(a:hover) {
+		opacity: 0.8;
+	}
+
+	/* Strikethrough */
+	.prose :global(del) {
+		text-decoration: line-through;
+		color: var(--text-secondary);
+	}
+
+	/* Task lists */
+	.prose :global(ul:has(> li > input[type='checkbox'])) {
+		list-style: none;
+		padding-left: 4px;
+	}
+
+	.prose :global(input[type='checkbox']) {
+		margin-right: 6px;
+	}
+
+	/* Nested lists */
+	.prose :global(li > ul),
+	.prose :global(li > ol) {
+		margin: 4px 0;
+	}
+
+	/* KaTeX display math */
+	.prose :global(.katex-display) {
+		margin: 12px 0;
+		overflow-x: auto;
+	}
 </style>

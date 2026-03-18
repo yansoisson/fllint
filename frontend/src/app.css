@@ -1,3 +1,6 @@
+@import 'katex/dist/katex.min.css';
+@import 'highlight.js/styles/github.css';
+
 :root {
 	/* Backgrounds */
 	--bg-primary: #ffffff;
@@ -87,6 +90,75 @@
 	--danger-border: #5c2828;
 
 	color-scheme: dark;
+}
+
+/* highlight.js: transparent bg so <pre> background from components takes effect */
+.hljs {
+	background: transparent !important;
+}
+
+/* Dark mode: syntax highlighting colors (GitHub Dark) */
+[data-theme='dark'] .hljs {
+	color: #e6edf3;
+}
+
+[data-theme='dark'] .hljs-keyword,
+[data-theme='dark'] .hljs-type,
+[data-theme='dark'] .hljs-template-tag,
+[data-theme='dark'] .hljs-template-variable,
+[data-theme='dark'] .hljs-variable.language_ {
+	color: #ff7b72;
+}
+
+[data-theme='dark'] .hljs-title,
+[data-theme='dark'] .hljs-title.class_,
+[data-theme='dark'] .hljs-title.function_ {
+	color: #d2a8ff;
+}
+
+[data-theme='dark'] .hljs-string,
+[data-theme='dark'] .hljs-meta .hljs-string {
+	color: #a5d6ff;
+}
+
+[data-theme='dark'] .hljs-attr,
+[data-theme='dark'] .hljs-attribute,
+[data-theme='dark'] .hljs-number,
+[data-theme='dark'] .hljs-selector-attr,
+[data-theme='dark'] .hljs-selector-class,
+[data-theme='dark'] .hljs-selector-id {
+	color: #79c0ff;
+}
+
+[data-theme='dark'] .hljs-built_in,
+[data-theme='dark'] .hljs-symbol {
+	color: #ffa657;
+}
+
+[data-theme='dark'] .hljs-comment,
+[data-theme='dark'] .hljs-code,
+[data-theme='dark'] .hljs-formula {
+	color: #8b949e;
+}
+
+[data-theme='dark'] .hljs-name,
+[data-theme='dark'] .hljs-selector-tag {
+	color: #7ee787;
+}
+
+[data-theme='dark'] .hljs-addition {
+	color: #aff5b4;
+	background-color: #033a16;
+}
+
+[data-theme='dark'] .hljs-deletion {
+	color: #ffdcd7;
+	background-color: #67060c;
+}
+
+/* Dark mode: KaTeX math colors */
+[data-theme='dark'] .katex {
+	color: var(--text-primary);
 }
 
 [data-theme='dark'] ::-webkit-scrollbar-thumb {

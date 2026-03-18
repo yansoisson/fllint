@@ -1,69 +1,67 @@
-function esc(s: string): string {
-	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+import { Marked } from 'marked';
+import { markedHighlight } from 'marked-highlight';
+import markedKatex from 'marked-katex-extension';
+import hljs from 'highlight.js/lib/common';
 
-function inlineFmt(text: string): string {
-	// Inline code
-	text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
-	// Bold
-	text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-	// Italic (not * followed by space, which is a bullet)
-	text = text.replace(/(?<!\*)\*(?!\*|\s)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+// CSS is imported in +layout.svelte to avoid dev-mode ordering issues
+
+const marked = new Marked(
+	markedHighlight({
+		langPrefix: 'hljs language-',
+		highlight(code, lang) {
+			if (lang && hljs.getLanguage(lang)) {
+				return hljs.highlight(code, { language: lang }).value;
+			}
+			return hljs.highlightAuto(code).value;
+		}
+	}),
+	markedKatex({
+		throwOnError: false,
+		output: 'html',
+		nonStandard: true
+	}),
+	{
+		gfm: true,
+		breaks: true,
+		async: false,
+		renderer: {
+			// Escape raw HTML from LLM output to prevent XSS
+			html({ text }: { text: string }) {
+				return text
+					.replace(/&/g, '&amp;')
+					.replace(/</g, '&lt;')
+					.replace(/>/g, '&gt;');
+			},
+			// Open links in system browser
+			link({ href, title, tokens }: { href: string; title?: string | null; tokens: any[] }) {
+				const text = this.parser.parseInline(tokens);
+				const t = title ? ` title="${title}"` : '';
+				return `<a href="${href}"${t} target="_blank" rel="noopener noreferrer">${text}</a>`;
+			}
+		}
+	}
+);
+
+/**
+ * Close unclosed constructs so partial streaming content renders correctly.
+ */
+function prepareForStreaming(text: string): string {
+	// Count triple-backtick fences (at line start)
+	const fences = text.match(/^```/gm);
+	if (fences && fences.length % 2 !== 0) {
+		text += '\n```';
+	}
+
+	// Count $$ delimiters for display math
+	const displayMath = text.match(/\$\$/g);
+	if (displayMath && displayMath.length % 2 !== 0) {
+		text += '$$';
+	}
+
 	return text;
 }
 
 export function renderMarkdown(text: string): string {
-	// Extract code blocks first to protect them
-	const codeBlocks: string[] = [];
-	let src = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, _lang, code) => {
-		codeBlocks.push(`<pre><code>${esc(code.trim())}</code></pre>`);
-		return `\x00CB${codeBlocks.length - 1}\x00`;
-	});
-
-	// Escape HTML in remaining text
-	src = esc(src);
-
-	// Restore code blocks (already escaped internally)
-	src = src.replace(/\x00CB(\d+)\x00/g, (_, i) => codeBlocks[+i]);
-
-	// Split into blocks by blank lines
-	const blocks = src.split(/\n{2,}/);
-
-	return blocks
-		.map((block) => {
-			if (block.startsWith('<pre>')) return block;
-
-			const lines = block.split('\n');
-			const nonEmpty = lines.filter((l) => l.trim());
-
-			// Unordered list
-			if (nonEmpty.length > 0 && nonEmpty.every((l) => /^[*\-•]\s/.test(l))) {
-				return (
-					'<ul>' +
-					nonEmpty
-						.map((l) => `<li>${inlineFmt(l.replace(/^[*\-•]\s+/, ''))}</li>`)
-						.join('') +
-					'</ul>'
-				);
-			}
-
-			// Ordered list
-			if (nonEmpty.length > 0 && nonEmpty.every((l) => /^\d+[.)]\s/.test(l))) {
-				return (
-					'<ol>' +
-					nonEmpty
-						.map((l) => `<li>${inlineFmt(l.replace(/^\d+[.)]\s+/, ''))}</li>`)
-						.join('') +
-					'</ol>'
-				);
-			}
-
-			// Heading
-			const hm = block.match(/^(#{1,6})\s+(.+)/);
-			if (hm) return `<h${hm[1].length}>${inlineFmt(hm[2])}</h${hm[1].length}>`;
-
-			// Paragraph
-			return `<p>${inlineFmt(block).replace(/\n/g, '<br>')}</p>`;
-		})
-		.join('');
+	const prepared = prepareForStreaming(text);
+	return marked.parse(prepared, { async: false }) as string;
 }
