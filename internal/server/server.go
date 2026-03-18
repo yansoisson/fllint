@@ -19,6 +19,7 @@ import (
 	"github.com/fllint/fllint/internal/document"
 	"github.com/fllint/fllint/internal/download"
 	"github.com/fllint/fllint/internal/image"
+	"github.com/fllint/fllint/internal/ocr"
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/prompt"
 	"github.com/fllint/fllint/internal/provider"
@@ -35,6 +36,8 @@ type Server struct {
 	queue         *queue.Queue
 	downloadMgr   *download.Manager
 	providerStore *provider.Store
+
+	ocrService *ocr.Service
 
 	isProduction bool
 	translocated bool // macOS App Translocation — updates unavailable until restart
@@ -59,6 +62,7 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 
 	inferenceQueue := queue.NewQueue(llmManager)
 	summaryService := summary.NewService(chatStore, llmManager, inferenceQueue)
+	ocrService := ocr.NewService(llmManager, inferenceQueue, cfg.DataDir)
 
 	s := &Server{
 		router:        chi.NewRouter(),
@@ -67,6 +71,7 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 		queue:         inferenceQueue,
 		downloadMgr:   downloadMgr,
 		providerStore: providerStore,
+		ocrService:    ocrService,
 		isProduction:  frontendFS != nil,
 		translocated:  translocated,
 	}
@@ -92,7 +97,13 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 
 		r.Post("/image/upload", imgHandler.Upload)
 		r.Post("/document/upload", docHandler.Upload)
+		r.Post("/document/pages", docHandler.PageCount)
 		r.Handle("/uploads/*", imgHandler.Serve())
+
+		// OCR
+		r.Post("/ocr/start", s.startOCR)
+		r.Get("/ocr/status/{id}", s.ocrStatus)
+		r.Post("/ocr/cancel", s.cancelOCR)
 
 		r.Get("/config", s.getConfig)
 		r.Put("/config", s.updateConfig)
@@ -611,6 +622,12 @@ func (s *Server) listHelperModels(w http.ResponseWriter, r *http.Request) {
 				configuredID = s.llmManager.AutoDetectHelperModel("Summary")
 			}
 			enabled = true
+		case "OCR":
+			configuredID = cfg.OCRModelID
+			if configuredID == "" {
+				configuredID = s.llmManager.AutoDetectHelperModel("OCR")
+			}
+			enabled = true
 		}
 
 		slots = append(slots, helperSlotResponse{
@@ -627,6 +644,7 @@ func (s *Server) listHelperModels(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateHelperConfig(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SummaryModelID *string `json:"summary_model_id"`
+		OCRModelID     *string `json:"ocr_model_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
@@ -639,6 +657,9 @@ func (s *Server) updateHelperConfig(w http.ResponseWriter, r *http.Request) {
 	if req.SummaryModelID != nil {
 		updated.SummaryModelID = *req.SummaryModelID
 	}
+	if req.OCRModelID != nil {
+		updated.OCRModelID = *req.OCRModelID
+	}
 
 	if err := config.Save(&updated); err != nil {
 		respondErrorJSON(w, http.StatusInternalServerError, "config_error", "Failed to save configuration.")
@@ -646,11 +667,18 @@ func (s *Server) updateHelperConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cfg = config.Get()
 
-	// If a local summary model was selected, auto-load it in the background
+	// If a local helper model was selected, auto-load it in the background
 	if req.SummaryModelID != nil && *req.SummaryModelID != "" && !strings.HasPrefix(*req.SummaryModelID, "ext:") {
 		go func() {
 			if err := s.llmManager.LoadModel(*req.SummaryModelID); err != nil {
 				log.Printf("Failed to load summary model %q: %v", *req.SummaryModelID, err)
+			}
+		}()
+	}
+	if req.OCRModelID != nil && *req.OCRModelID != "" && !strings.HasPrefix(*req.OCRModelID, "ext:") {
+		go func() {
+			if err := s.llmManager.LoadModel(*req.OCRModelID); err != nil {
+				log.Printf("Failed to load OCR model %q: %v", *req.OCRModelID, err)
 			}
 		}()
 	}

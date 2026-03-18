@@ -63,6 +63,18 @@ export interface AppConfig {
 	default_model_id?: string;
 	forward_params_to_external: boolean;
 	summary_model_id?: string;
+	ocr_model_id?: string;
+}
+
+export interface OcrJobStatus {
+	id: string;
+	status: 'processing' | 'complete' | 'error' | 'cancelled';
+	total_pages: number;
+	done_pages: number;
+	failed_pages?: number[];
+	error?: string;
+	result_text?: string;
+	result_url?: string;
 }
 
 export interface SSEToken {

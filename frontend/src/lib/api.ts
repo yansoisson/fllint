@@ -16,7 +16,8 @@ import type {
 	ProviderTypeInfo,
 	ProviderModel,
 	SelectedModel,
-	HelperSlotInfo
+	HelperSlotInfo,
+	OcrJobStatus
 } from './types';
 
 const BASE = '/api';
@@ -378,10 +379,37 @@ export async function getHelperModels(): Promise<{ slots: HelperSlotInfo[] }> {
 	return request('/helper-models');
 }
 
-export async function updateHelperConfig(cfg: { summary_model_id?: string }): Promise<void> {
+export async function updateHelperConfig(cfg: { summary_model_id?: string; ocr_model_id?: string }): Promise<void> {
 	await request('/helper-models/config', {
 		method: 'PUT',
 		body: JSON.stringify(cfg)
+	});
+}
+
+// --- OCR ---
+
+export async function getDocumentPages(url: string): Promise<{ page_count: number }> {
+	return request('/document/pages', {
+		method: 'POST',
+		body: JSON.stringify({ url })
+	});
+}
+
+export async function startOCR(pdfUrl: string, totalPages: number, ocrPages: { page_num: number; image_url: string }[]): Promise<{ job_id: string }> {
+	return request('/ocr/start', {
+		method: 'POST',
+		body: JSON.stringify({ pdf_url: pdfUrl, total_pages: totalPages, ocr_pages: ocrPages })
+	});
+}
+
+export async function getOCRStatus(jobId: string): Promise<OcrJobStatus> {
+	return request(`/ocr/status/${jobId}`);
+}
+
+export async function cancelOCR(jobId: string): Promise<void> {
+	await request('/ocr/cancel', {
+		method: 'POST',
+		body: JSON.stringify({ job_id: jobId })
 	});
 }
 

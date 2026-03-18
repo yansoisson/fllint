@@ -320,6 +320,7 @@ func commonPrefixLen(a, b string) int {
 
 // scanHelperModels finds helper model .gguf files in the helper directory.
 // Helper models live in {modelsDir}/{helperDirName}/{slot}/ subdirectories.
+// It also pairs mmproj files with models (needed for vision-based helpers like OCR).
 func (m *Manager) scanHelperModels() []ModelInfo {
 	var models []ModelInfo
 	for _, slot := range HelperSlots {
@@ -328,6 +329,10 @@ func (m *Manager) scanHelperModels() []ModelInfo {
 		if err != nil {
 			continue
 		}
+
+		// First pass: separate model files from mmproj files
+		var modelEntries []os.DirEntry
+		var mmprojPath string
 		for _, entry := range entries {
 			if entry.IsDir() {
 				continue
@@ -336,15 +341,21 @@ func (m *Manager) scanHelperModels() []ModelInfo {
 				continue
 			}
 			if strings.Contains(strings.ToLower(entry.Name()), "mmproj") {
-				continue
+				mmprojPath = filepath.Join(slotDir, entry.Name())
+			} else {
+				modelEntries = append(modelEntries, entry)
 			}
+		}
+
+		// Second pass: create ModelInfo for each model, pairing with mmproj if found
+		for _, entry := range modelEntries {
 			info, err := entry.Info()
 			if err != nil {
 				continue
 			}
 			modelID := helperDirName + "/" + slot + "/" + entry.Name()
 			meta := loadOrCreateModelMeta(slotDir, modelNameFromFilename(entry.Name()))
-			models = append(models, ModelInfo{
+			mi := ModelInfo{
 				ID:         modelID,
 				Name:       meta.Name,
 				FilePath:   filepath.Join(slotDir, entry.Name()),
@@ -352,7 +363,12 @@ func (m *Manager) scanHelperModels() []ModelInfo {
 				Tier:       TierHelper,
 				Helper:     true,
 				HelperSlot: slot,
-			})
+			}
+			if mmprojPath != "" {
+				mi.MmprojPath = mmprojPath
+				mi.Vision = true
+			}
+			models = append(models, mi)
 		}
 	}
 	return models
@@ -515,12 +531,19 @@ func (m *Manager) LoadModel(modelID string) error {
 
 	// --- Phase 3: create & start new engine (no lock needed) ---
 	log.Printf("Loading model %q (%s)...", targetName, modelID)
+
+	// Helper vision models (e.g. OCR) need a larger context for image embeddings
+	ctxSize := cfg.CtxSize
+	if target != nil && target.Helper && target.Vision && ctxSize < 16384 {
+		ctxSize = 16384
+	}
+
 	engine, err := NewLlamaCppEngine(LlamaCppConfig{
 		ServerBinaryPath: m.serverBinaryPath,
 		ModelPath:        targetFilePath,
 		ModelName:        targetName,
 		MmprojPath:       targetMmprojPath,
-		CtxSize:          cfg.CtxSize,
+		CtxSize:          ctxSize,
 		NGPULayers:       cfg.NGPULayers,
 		FlashAttn:        cfg.FlashAttn,
 		DataDir:          m.dataDir,

@@ -108,6 +108,29 @@ func extractPlainText(filePath string) (string, error) {
 	return string(data), nil
 }
 
+// ExtractPDFPage extracts text from a single PDF page (1-based index).
+func ExtractPDFPage(filePath string, pageNum int) (string, error) {
+	f, r, err := pdf.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("Could not open PDF file.")
+	}
+	defer f.Close()
+
+	if pageNum < 1 || pageNum > r.NumPage() {
+		return "", fmt.Errorf("Page %d out of range (1-%d).", pageNum, r.NumPage())
+	}
+
+	page := r.Page(pageNum)
+	if page.V.IsNull() {
+		return "", nil
+	}
+	text, err := page.GetPlainText(nil)
+	if err != nil {
+		return "", nil
+	}
+	return text, nil
+}
+
 func extractPDF(filePath string) (string, error) {
 	f, r, err := pdf.Open(filePath)
 	if err != nil {

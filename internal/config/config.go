@@ -44,6 +44,7 @@ type Config struct {
 
 	// Helper Models
 	SummaryModelID string `json:"summary_model_id,omitempty"` // model for generating conversation titles
+	OCRModelID     string `json:"ocr_model_id,omitempty"`     // model for OCR text extraction from PDFs
 }
 
 var (

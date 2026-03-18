@@ -5,6 +5,7 @@
 	import Settings from '$components/Settings.svelte';
 	import Toast from '$components/Toast.svelte';
 	import UnloadPopup from '$components/UnloadPopup.svelte';
+	import OcrPopup from '$components/OcrPopup.svelte';
 	import { goto } from '$app/navigation';
 	import {
 		initApp,
@@ -54,6 +55,7 @@
 
 <Settings />
 <UnloadPopup />
+<OcrPopup />
 <Toast />
 
 <style>

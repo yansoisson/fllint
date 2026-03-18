@@ -24,6 +24,7 @@
     "katex": "^0.16.38",
     "marked": "^17.0.4",
     "marked-highlight": "^2.2.3",
-    "marked-katex-extension": "^5.1.7"
+    "marked-katex-extension": "^5.1.7",
+    "pdfjs-dist": "^5.5.207"
   }
 }

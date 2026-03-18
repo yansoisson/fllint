@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ImagePreview from './ImagePreview.svelte';
 	import DocumentPreview from './DocumentPreview.svelte';
-	import { sendMessage, getIsStreaming, cancelStream, cancelQueueItem, addPendingImage, getPendingImages, addPendingDocument, getPendingDocuments, getQueuePosition, isEffectiveModelLoading, getEffectiveModelId, getModels } from '$lib/stores.svelte';
+	import { sendMessage, getIsStreaming, cancelStream, cancelQueueItem, addPendingImage, getPendingImages, addPendingDocument, getPendingDocuments, getQueuePosition, isEffectiveModelLoading, isOcrProcessing, getEffectiveModelId, getModels } from '$lib/stores.svelte';
 
 	let inputText = $state('');
 	let fileInput: HTMLInputElement;
@@ -37,7 +37,7 @@
 
 	async function handleSubmit() {
 		const text = inputText.trim();
-		if ((!text && getPendingImages().length === 0 && getPendingDocuments().length === 0) || getIsStreaming() || modelLoading) return;
+		if ((!text && getPendingImages().length === 0 && getPendingDocuments().length === 0) || getIsStreaming() || modelLoading || isOcrProcessing()) return;
 
 		inputText = '';
 		if (textareaEl) {
@@ -156,7 +156,7 @@
 				<button
 					class="send-btn"
 					onclick={handleSubmit}
-					disabled={modelLoading || (!inputText.trim() && getPendingImages().length === 0 && getPendingDocuments().length === 0)}
+					disabled={modelLoading || isOcrProcessing() || (!inputText.trim() && getPendingImages().length === 0 && getPendingDocuments().length === 0)}
 					title="Send message"
 					aria-label="Send message"
 				>

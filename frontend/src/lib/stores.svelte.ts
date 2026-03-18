@@ -1,4 +1,4 @@
-import type { Conversation, ChatMessage, ModelInfo, EngineStatus, MemoryInfo, MemoryErrorInfo, RegistryModel, DownloadStatus, Provider, DocumentAttachment } from './types';
+import type { Conversation, ChatMessage, ModelInfo, EngineStatus, MemoryInfo, MemoryErrorInfo, RegistryModel, DownloadStatus, Provider, DocumentAttachment, OcrJobStatus } from './types';
 import { goto } from '$app/navigation';
 import * as api from './api';
 import { InsufficientMemoryError } from './api';
@@ -57,8 +57,14 @@ let appVersion = $state<string | null>(null);
 let sidebarOpen = $state(true);
 let settingsOpen = $state(false);
 let pendingImages = $state<{ file: File; preview: string }[]>([]);
-let pendingDocuments = $state<{ file: File; name: string }[]>([]);
+let pendingDocuments = $state<{ file: File; name: string; ocrText?: string; ocrProcessing?: boolean }[]>([]);
 let chatError = $state<string | null>(null);
+
+// --- OCR ---
+let ocrPopup = $state<{ docIndex: number; filename: string; file: File; pageCount: number } | null>(null);
+let ocrJobId = $state<string | null>(null);
+let ocrProgress = $state<OcrJobStatus | null>(null);
+let ocrPollTimer: ReturnType<typeof setInterval> | null = null;
 let initError = $state<string | null>(null);
 let notification = $state<{ message: string; type: 'error' | 'info' } | null>(null);
 let notificationTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -472,6 +478,173 @@ export function clearPendingDocuments() {
 	pendingDocuments = [];
 }
 
+// --- OCR ---
+
+export function getOcrPopup() {
+	return ocrPopup;
+}
+
+export function getOcrProgress() {
+	return ocrProgress;
+}
+
+export function isOcrProcessing() {
+	return pendingDocuments.some((d) => d.ocrProcessing);
+}
+
+export async function openOcrPopup(docIndex: number) {
+	const doc = pendingDocuments[docIndex];
+	if (!doc) return;
+
+	// If already have popup data for this doc (re-opening during processing), just show it
+	if (ocrPopup && ocrPopup.docIndex === docIndex) return;
+
+	try {
+		const { getPageCount } = await import('$lib/pdf');
+		const pageCount = await getPageCount(doc.file);
+		ocrPopup = { docIndex, filename: doc.name, file: doc.file, pageCount };
+	} catch (err) {
+		showNotification('Failed to read PDF pages.');
+	}
+}
+
+export function closeOcrPopup() {
+	// Don't clear progress/polling if OCR is still running — just hide the popup
+	if (ocrProgress?.status === 'processing') {
+		ocrPopup = null;
+		return;
+	}
+	ocrPopup = null;
+	ocrProgress = null;
+	ocrJobId = null;
+	if (ocrPollTimer) {
+		clearInterval(ocrPollTimer);
+		ocrPollTimer = null;
+	}
+}
+
+export async function startOcrProcessing(pages: number[]) {
+	if (!ocrPopup) return;
+	const { docIndex, file, pageCount } = ocrPopup;
+
+	// Mark document as processing
+	pendingDocuments = pendingDocuments.map((d, i) =>
+		i === docIndex ? { ...d, ocrProcessing: true } : d
+	);
+
+	try {
+		// Upload the PDF first to get its URL (needed by backend for text extraction)
+		const pdfUpload = await api.uploadDocument(file);
+		const pdfUrl = pdfUpload.url;
+
+		// Cache the upload result on the pending document
+		pendingDocuments = pendingDocuments.map((d, i) =>
+			i === docIndex ? { ...d, uploadedUrl: pdfUrl } : d
+		);
+
+		// Render selected OCR pages to images and upload them
+		const { renderPageToBlob } = await import('$lib/pdf');
+		const ocrPages: { page_num: number; image_url: string }[] = [];
+
+		for (const pageNum of pages) {
+			const blob = await renderPageToBlob(file, pageNum);
+			const imageFile = new File([blob], `page-${pageNum}.png`, { type: 'image/png' });
+			const result = await api.uploadImage(imageFile);
+			ocrPages.push({ page_num: pageNum, image_url: result.url });
+		}
+
+		// Start OCR processing — backend handles ALL pages (OCR + text extraction)
+		const { job_id } = await api.startOCR(pdfUrl, pageCount, ocrPages);
+		ocrJobId = job_id;
+		ocrProgress = {
+			id: job_id,
+			status: 'processing',
+			total_pages: pageCount,
+			done_pages: 0
+		};
+
+		// Poll for progress
+		ocrPollTimer = setInterval(async () => {
+			if (!ocrJobId) return;
+			try {
+				const status = await api.getOCRStatus(ocrJobId);
+				ocrProgress = status;
+
+				if (status.status === 'complete') {
+					const warningMsg = status.failed_pages?.length
+						? `OCR complete. Pages ${status.failed_pages.join(', ')} failed — text extraction was used as fallback.`
+						: 'OCR processing complete.';
+					pendingDocuments = pendingDocuments.map((d, i) =>
+						i === docIndex
+							? { ...d, ocrText: status.result_text, ocrProcessing: false }
+							: d
+					);
+					// Clean up polling
+					if (ocrPollTimer) {
+						clearInterval(ocrPollTimer);
+						ocrPollTimer = null;
+					}
+					ocrJobId = null;
+					ocrProgress = null;
+					ocrPopup = null;
+					showNotification(warningMsg, status.failed_pages?.length ? 'error' : 'info');
+				} else if (status.status === 'error') {
+					pendingDocuments = pendingDocuments.map((d, i) =>
+						i === docIndex ? { ...d, ocrProcessing: false } : d
+					);
+					if (ocrPollTimer) {
+						clearInterval(ocrPollTimer);
+						ocrPollTimer = null;
+					}
+					ocrJobId = null;
+					showNotification(status.error || 'OCR processing failed.');
+				} else if (status.status === 'cancelled') {
+					pendingDocuments = pendingDocuments.map((d, i) =>
+						i === docIndex ? { ...d, ocrProcessing: false } : d
+					);
+					if (ocrPollTimer) {
+						clearInterval(ocrPollTimer);
+						ocrPollTimer = null;
+					}
+					ocrJobId = null;
+					ocrProgress = null;
+					ocrPopup = null;
+				}
+			} catch {
+				// Polling error, ignore
+			}
+		}, 1000);
+	} catch (err) {
+		pendingDocuments = pendingDocuments.map((d, i) =>
+			i === docIndex ? { ...d, ocrProcessing: false } : d
+		);
+		showNotification(err instanceof Error ? err.message : 'OCR processing failed.');
+	}
+}
+
+export async function cancelOcrProcessing() {
+	if (ocrJobId) {
+		try {
+			await api.cancelOCR(ocrJobId);
+		} catch {
+			// Ignore
+		}
+	}
+	if (ocrPopup) {
+		const { docIndex } = ocrPopup;
+		pendingDocuments = pendingDocuments.map((d, i) =>
+			i === docIndex ? { ...d, ocrProcessing: false } : d
+		);
+	}
+	ocrPopup = null;
+	ocrProgress = null;
+	ocrJobId = null;
+	if (ocrPollTimer) {
+		clearInterval(ocrPollTimer);
+		ocrPollTimer = null;
+	}
+}
+
 export async function loadConversations() {
 	try {
 		conversations = await api.listConversations();
@@ -555,10 +728,10 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 				const uploads = await Promise.all(
 					pendingDocuments.map((doc) => api.uploadDocument(doc.file))
 				);
-				documentAttachments = uploads.map((result) => ({
+				documentAttachments = uploads.map((result, i) => ({
 					filename: result.original_name,
 					url: result.url,
-					text: result.extracted_text
+					text: pendingDocuments[i]?.ocrText ?? result.extracted_text
 				}));
 			} catch (err) {
 				chatError = err instanceof Error ? err.message : 'Failed to upload document. Please try again.';

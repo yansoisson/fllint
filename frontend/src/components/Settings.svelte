@@ -449,10 +449,10 @@
 		}
 	}
 
-	async function saveHelperConfig(summaryModelId: string) {
+	async function saveHelperConfig(cfg: { summary_model_id?: string; ocr_model_id?: string }) {
 		savingHelper = true;
 		try {
-			await api.updateHelperConfig({ summary_model_id: summaryModelId || undefined });
+			await api.updateHelperConfig(cfg);
 			showNotification('Helper model configuration saved.', 'info');
 		} catch (err) {
 			console.error('Failed to save helper config:', err);
@@ -1324,7 +1324,7 @@
 												value={slot.configured_model_id || ''}
 												onchange={(e) => {
 													const target = e.target as HTMLSelectElement;
-													saveHelperConfig(target.value);
+													saveHelperConfig({ summary_model_id: target.value || undefined });
 													// Update local state optimistically
 													slot.configured_model_id = target.value;
 												}}
@@ -1341,9 +1341,66 @@
 
 									{:else if slot.slot === 'OCR'}
 										<p class="section-description">
-											Extracts text from images for searchability and context.
+											Extracts text from scanned PDFs using a vision model. Click the pen icon on PDF attachments to start OCR.
 										</p>
-										<p class="coming-soon-text">OCR model support will be available in a future update.</p>
+
+										{@const ocrReg = registryModels.find(m => m.id === 'helper-ocr-glm-ocr')}
+										{#if ocrReg && !ocrReg.downloaded}
+											{@const dl = findActiveDownload(ocrReg.id)}
+											<div class="download-list" style="margin-bottom: 12px;">
+												<div class="download-card">
+													<div class="model-info">
+														<div class="model-name-row">
+															<span class="model-name">{ocrReg.display_name}</span>
+														</div>
+														<div class="model-meta">
+															<span>{formatSize(ocrReg.size + (ocrReg.mmproj_size || 0))}</span>
+														</div>
+													</div>
+													<div class="download-action">
+														{#if dl?.state === 'downloading'}
+															<div class="download-progress-row">
+																<div class="progress-bar">
+																	<div class="progress-fill" style="width: {progressPercent(dl)}%"></div>
+																</div>
+																<span class="progress-text">{progressPercent(dl)}%</span>
+																<button class="small-btn danger-text" onclick={() => handleCancelDownload(dl.id)}>Cancel</button>
+															</div>
+														{:else if dl?.state === 'queued'}
+															<span class="queue-text">Waiting...</span>
+															<button class="small-btn danger-text" onclick={() => handleCancelDownload(dl.id)}>Cancel</button>
+														{:else if dl?.state === 'error'}
+															<span class="error-text-small" title={dl.error}>{dl.error}</span>
+															<button class="small-btn" onclick={() => handleStartDownload(ocrReg.id)}>Retry</button>
+														{:else}
+															<button class="secondary-btn download-btn" onclick={() => handleStartDownload(ocrReg.id)}>Download</button>
+														{/if}
+													</div>
+												</div>
+											</div>
+										{/if}
+
+										<div class="field">
+											<label class="field-label" for="ocr-model">Model</label>
+											<select
+												id="ocr-model"
+												class="select"
+												value={slot.configured_model_id || ''}
+												onchange={(e) => {
+													const target = e.target as HTMLSelectElement;
+													saveHelperConfig({ ocr_model_id: target.value || undefined });
+													slot.configured_model_id = target.value;
+												}}
+												disabled={savingHelper}
+											>
+												<option value="">None (OCR disabled)</option>
+												{#each slot.available_models as model}
+													<option value={model.id}>
+														{model.name}{model.external ? ' (External)' : ''}{model.size ? ` — ${formatSize(model.size)}` : ''}
+													</option>
+												{/each}
+											</select>
+										</div>
 									{:else if slot.slot === 'Embedding'}
 										<p class="section-description">
 											Creates vector representations for semantic search across conversations.

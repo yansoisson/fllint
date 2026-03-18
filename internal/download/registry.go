@@ -85,6 +85,19 @@ func Registry() []RegistryModel {
 			Filename:    "Qwen3.5-0.8B-Q4_0.gguf",
 			DirName:     "Helper-hewrow-Nipju6-mecnop/Summary",
 		},
+		{
+			ID:          "helper-ocr-glm-ocr",
+			DisplayName: "OCR Model (GLM-OCR)",
+			Category:    "helper",
+			Tier:        "helper",
+			URL:         "https://huggingface.co/ggml-org/GLM-OCR-GGUF/resolve/main/GLM-OCR-Q8_0.gguf?download=true",
+			Size:        950_433_408,
+			Filename:    "GLM-OCR-Q8_0.gguf",
+			DirName:     "Helper-hewrow-Nipju6-mecnop/OCR",
+			MmprojURL:   "https://huggingface.co/ggml-org/GLM-OCR-GGUF/resolve/main/mmproj-GLM-OCR-Q8_0.gguf?download=true",
+			MmprojSize:  484_403_648,
+			MmprojName:  "mmproj-GLM-OCR-Q8_0.gguf",
+		},
 	}
 }
 

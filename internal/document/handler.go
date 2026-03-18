@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/ledongthuc/pdf"
 )
 
 // Handler manages document uploads and text extraction.
@@ -100,6 +101,39 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		OriginalName:  header.Filename,
 		ExtractedText: text,
 	})
+}
+
+// PageCount returns the number of pages in a PDF file.
+func (h *Handler) PageCount(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "Invalid request body.")
+		return
+	}
+
+	if !strings.HasPrefix(req.URL, "/api/uploads/") {
+		writeError(w, http.StatusBadRequest, "bad_request", "Invalid document URL.")
+		return
+	}
+	filename := strings.TrimPrefix(req.URL, "/api/uploads/")
+	if strings.Contains(filename, "/") || strings.Contains(filename, "..") || filename == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "Invalid document URL.")
+		return
+	}
+
+	filePath := filepath.Join(h.uploadDir, filename)
+	f, reader, err := pdf.Open(filePath)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "pdf_error", "Could not open PDF file.")
+		return
+	}
+	defer f.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]int{"page_count": reader.NumPage()})
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
