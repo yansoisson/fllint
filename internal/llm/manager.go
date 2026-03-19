@@ -195,7 +195,7 @@ func (m *Manager) scanModels() []ModelInfo {
 
 		looseModels = append(looseModels, ModelInfo{
 			ID:       entry.Name(),
-			Name:     modelNameFromFilename(entry.Name()),
+			Name:     ModelNameFromFilename(entry.Name()),
 			Tier:     tierFromSize(info.Size()),
 			FilePath: filepath.Join(m.modelsDir, entry.Name()),
 			Size:     info.Size(),
@@ -248,7 +248,7 @@ func (m *Manager) scanModelDir(dir string) *ModelInfo {
 	}
 
 	// Load or create model.json for display name
-	meta := loadOrCreateModelMeta(dir, modelNameFromFilename(modelFile.Name()))
+	meta := loadOrCreateModelMeta(dir, ModelNameFromFilename(modelFile.Name()))
 
 	// Use "dirname/filename" as the ID so it stays unique across folders
 	dirName := filepath.Base(dir)
@@ -355,7 +355,7 @@ func (m *Manager) scanHelperModels() []ModelInfo {
 				continue
 			}
 			modelID := helperDirName + "/" + slot + "/" + entry.Name()
-			meta := loadOrCreateModelMeta(slotDir, modelNameFromFilename(entry.Name()))
+			meta := loadOrCreateModelMeta(slotDir, ModelNameFromFilename(entry.Name()))
 			mi := ModelInfo{
 				ID:         modelID,
 				Name:       meta.Name,

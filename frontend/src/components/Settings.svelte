@@ -39,6 +39,13 @@
 	let editingName = $state('');
 	let deleteModelConfirm = $state<string | null>(null);
 	let deleteAllStep = $state(0);
+
+	// --- Add model state ---
+	let addModelOpen = $state(false);
+	let addModelGguf = $state<File | null>(null);
+	let addModelMmproj = $state<File | null>(null);
+	let addModelName = $state('');
+	let addModelUploading = $state(false);
 	let deleteAllTimeout: ReturnType<typeof setTimeout> | null = null;
 	let unloadingModelId = $state<string | null>(null);
 	let dragModelId = $state<string | null>(null);
@@ -594,6 +601,50 @@
 		await cancelModelDownload(downloadId);
 	}
 
+	function autoDetectName(filename: string): string {
+		let name = filename.replace(/\.gguf$/i, '');
+		name = name.replace(/[-_.]/g, ' ');
+		return name.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+	}
+
+	function handleGgufSelect(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0] ?? null;
+		addModelGguf = file;
+		if (file && !addModelName) {
+			addModelName = autoDetectName(file.name);
+		}
+	}
+
+	function handleMmprojSelect(e: Event) {
+		const input = e.target as HTMLInputElement;
+		addModelMmproj = input.files?.[0] ?? null;
+	}
+
+	function resetAddModel() {
+		addModelOpen = false;
+		addModelGguf = null;
+		addModelMmproj = null;
+		addModelName = '';
+		addModelUploading = false;
+	}
+
+	async function handleAddModel() {
+		if (!addModelGguf || addModelUploading) return;
+		addModelUploading = true;
+		try {
+			await api.addModel(addModelGguf, addModelMmproj, addModelName);
+			showNotification('Model added successfully.', 'info');
+			resetAddModel();
+			await loadModels();
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : 'Failed to add model.';
+			showNotification(msg, 'error');
+		} finally {
+			addModelUploading = false;
+		}
+	}
+
 	function isTierModel(model: ModelInfo): boolean {
 		return model.tier === 'lite' || model.tier === 'standard' || model.tier === 'pro';
 	}
@@ -1019,6 +1070,56 @@
 								</div>
 							</section>
 						{/if}
+
+						<!-- ==================== ADD CUSTOM MODEL ==================== -->
+						<section class="section">
+							<h4 class="section-title">Add Custom Model</h4>
+							<p class="field-desc">Add a local GGUF model file. The file will be copied to your models folder.</p>
+
+							{#if !addModelOpen}
+								<button class="secondary-btn" onclick={() => (addModelOpen = true)}>Add Model</button>
+							{:else}
+								<div class="add-model-form">
+									<div class="field">
+										<label class="field-label" for="add-gguf">Model File (.gguf) *</label>
+										<input id="add-gguf" type="file" accept=".gguf" onchange={handleGgufSelect} class="file-input" />
+										{#if addModelGguf}
+											<p class="field-hint">{addModelGguf.name} — {formatSize(addModelGguf.size)}</p>
+										{/if}
+									</div>
+
+									<div class="field">
+										<label class="field-label" for="add-mmproj">Vision Projection (.gguf) — optional</label>
+										<input id="add-mmproj" type="file" accept=".gguf" onchange={handleMmprojSelect} class="file-input" />
+										{#if addModelMmproj}
+											<p class="field-hint">{addModelMmproj.name} — {formatSize(addModelMmproj.size)}</p>
+										{/if}
+									</div>
+
+									<div class="field">
+										<label class="field-label" for="add-name">Display Name</label>
+										<input
+											id="add-name"
+											type="text"
+											class="input"
+											bind:value={addModelName}
+											placeholder="Auto-detected from filename"
+										/>
+									</div>
+
+									<div class="add-model-actions">
+										<button class="secondary-btn" onclick={resetAddModel} disabled={addModelUploading}>Cancel</button>
+										<button
+											class="primary-btn"
+											onclick={handleAddModel}
+											disabled={!addModelGguf || addModelUploading}
+										>
+											{addModelUploading ? 'Copying...' : 'Add Model'}
+										</button>
+									</div>
+								</div>
+							{/if}
+						</section>
 
 						<!-- ==================== MODEL PROVIDERS ==================== -->
 						<section class="section">
@@ -2508,6 +2609,58 @@
 	.download-btn {
 		padding: 5px 12px;
 		font-size: 0.8rem;
+	}
+
+	/* --- Add model styles --- */
+	.add-model-form {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.file-input {
+		font-size: 0.85rem;
+		color: var(--text-primary);
+	}
+
+	.file-input::file-selector-button {
+		padding: 5px 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: 0.8rem;
+		cursor: pointer;
+		margin-right: 8px;
+		transition: all var(--transition);
+	}
+
+	.file-input::file-selector-button:hover {
+		background: var(--bg-hover);
+	}
+
+	.add-model-actions {
+		display: flex;
+		gap: 8px;
+		justify-content: flex-end;
+	}
+
+	.primary-btn {
+		padding: 6px 16px;
+		border-radius: var(--radius);
+		font-size: 0.85rem;
+		background: var(--accent);
+		color: white;
+		transition: all var(--transition);
+	}
+
+	.primary-btn:hover:not(:disabled) {
+		background: var(--accent-hover);
+	}
+
+	.primary-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	/* --- Provider styles --- */

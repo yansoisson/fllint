@@ -8,7 +8,9 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -92,6 +94,7 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 		r.Post("/models/refresh", s.refreshModels)
 		r.Post("/models/delete", s.deleteModel)
 		r.Post("/models/rename", s.renameModel)
+		r.Post("/models/add", s.addModel)
 
 		r.Get("/status", s.getStatus)
 
@@ -373,6 +376,130 @@ func (s *Server) renameModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) addModel(w http.ResponseWriter, r *http.Request) {
+	// 32 MB memory limit — larger files are written to temp files automatically
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid multipart form.")
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+
+	// Required: main GGUF file
+	ggufFile, ggufHeader, err := r.FormFile("gguf")
+	if err != nil {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "A .gguf model file is required.")
+		return
+	}
+	defer ggufFile.Close()
+
+	if !strings.HasSuffix(strings.ToLower(ggufHeader.Filename), ".gguf") {
+		respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Model file must be a .gguf file.")
+		return
+	}
+
+	// Optional: mmproj GGUF file for vision
+	mmprojFile, mmprojHeader, _ := r.FormFile("mmproj")
+	if mmprojFile != nil {
+		defer mmprojFile.Close()
+		if !strings.HasSuffix(strings.ToLower(mmprojHeader.Filename), ".gguf") {
+			respondErrorJSON(w, http.StatusBadRequest, "bad_request", "Vision projection file must be a .gguf file.")
+			return
+		}
+	}
+
+	// Model name: from form field or auto-detect from filename
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		name = llm.ModelNameFromFilename(ggufHeader.Filename)
+	}
+
+	// Create a subdirectory for the model using sanitized name
+	dirName := sanitizeDirName(name)
+	if dirName == "" {
+		dirName = "Custom"
+	}
+	destDir := filepath.Join(s.cfg.ModelsDir, dirName)
+
+	// Ensure unique directory name
+	if _, err := os.Stat(destDir); err == nil {
+		base := dirName
+		for i := 2; ; i++ {
+			dirName = fmt.Sprintf("%s-%d", base, i)
+			destDir = filepath.Join(s.cfg.ModelsDir, dirName)
+			if _, err := os.Stat(destDir); os.IsNotExist(err) {
+				break
+			}
+		}
+	}
+
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		respondErrorJSON(w, http.StatusInternalServerError, "model_error", "Could not create model directory.")
+		return
+	}
+
+	// Copy GGUF file
+	ggufDest := filepath.Join(destDir, ggufHeader.Filename)
+	if err := copyUploadedFile(ggufFile, ggufDest); err != nil {
+		os.RemoveAll(destDir)
+		respondErrorJSON(w, http.StatusInternalServerError, "model_error", "Failed to save model file.")
+		return
+	}
+
+	// Copy mmproj file if provided
+	if mmprojFile != nil {
+		mmprojDest := filepath.Join(destDir, mmprojHeader.Filename)
+		if err := copyUploadedFile(mmprojFile, mmprojDest); err != nil {
+			os.RemoveAll(destDir)
+			respondErrorJSON(w, http.StatusInternalServerError, "model_error", "Failed to save vision projection file.")
+			return
+		}
+	}
+
+	// Write model.json with display name
+	meta := struct {
+		Name string `json:"name"`
+	}{Name: name}
+	if data, err := json.MarshalIndent(meta, "", "  "); err == nil {
+		os.WriteFile(filepath.Join(destDir, "model.json"), append(data, '\n'), 0644)
+	}
+
+	// Refresh model list
+	s.llmManager.RefreshModels()
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"status": "ok",
+		"name":   name,
+	})
+}
+
+// sanitizeDirName creates a filesystem-safe directory name from a model name.
+func sanitizeDirName(name string) string {
+	// Replace unsafe characters
+	safe := strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
+			return '-'
+		}
+		return r
+	}, name)
+	safe = strings.TrimSpace(safe)
+	// Collapse repeated dashes
+	for strings.Contains(safe, "--") {
+		safe = strings.ReplaceAll(safe, "--", "-")
+	}
+	return strings.Trim(safe, "-.")
+}
+
+// copyUploadedFile copies a multipart file to a destination path.
+func copyUploadedFile(src io.Reader, destPath string) error {
+	dst, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	_, err = io.Copy(dst, src)
+	return err
 }
 
 func (s *Server) getMemory(w http.ResponseWriter, r *http.Request) {

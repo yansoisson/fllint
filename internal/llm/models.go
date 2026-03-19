@@ -37,9 +37,9 @@ type ModelInfo struct {
 	HelperSlot string `json:"helper_slot,omitempty"` // "Summary", "OCR", or "Embedding"
 }
 
-// modelNameFromFilename derives a human-readable name from a GGUF filename.
+// ModelNameFromFilename derives a human-readable name from a GGUF filename.
 // Example: "qwen2.5-1.5b-instruct-Q4_K_M.gguf" → "Qwen2 5 1 5b Instruct Q4 K M"
-func modelNameFromFilename(filename string) string {
+func ModelNameFromFilename(filename string) string {
 	name := strings.TrimSuffix(filename, filepath.Ext(filename))
 	name = strings.ReplaceAll(name, "-", " ")
 	name = strings.ReplaceAll(name, "_", " ")

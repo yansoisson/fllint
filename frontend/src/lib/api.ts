@@ -257,6 +257,20 @@ export async function renameModel(modelId: string, name: string): Promise<void> 
 	});
 }
 
+export async function addModel(gguf: File, mmproj: File | null, name: string): Promise<{ status: string; name: string }> {
+	const form = new FormData();
+	form.append('gguf', gguf);
+	if (mmproj) form.append('mmproj', mmproj);
+	if (name) form.append('name', name);
+
+	const resp = await fetch(`${BASE}/models/add`, { method: 'POST', body: form });
+	if (!resp.ok) {
+		const err = await resp.json().catch(() => ({ error: 'Upload failed.' }));
+		throw new Error(err.error || 'Upload failed.');
+	}
+	return resp.json();
+}
+
 // --- Folder ---
 
 export async function openFolder(folder: 'models' | 'data'): Promise<void> {
