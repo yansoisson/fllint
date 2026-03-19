@@ -1432,11 +1432,7 @@
 								{/if}
 							{/if}
 
-							<p class="field-desc" style="margin-top: 12px;">
-								To add a new model, place a .gguf file in the models folder.
-							</p>
-
-							<div class="button-row">
+							<div class="button-row" style="margin-top: 12px;">
 								<button class="secondary-btn" onclick={() => api.openFolder('models')}>
 									Open Models Folder
 								</button>
