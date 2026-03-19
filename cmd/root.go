@@ -203,6 +203,30 @@ func Run(frontendFS fs.FS) {
 		}
 	}()
 
+	// Volume watchdog: if the app's data directory becomes inaccessible
+	// (e.g. external SSD unplugged), force-exit immediately. Without this,
+	// the process hangs and the systray becomes unresponsive.
+	go func() {
+		for {
+			time.Sleep(2 * time.Second)
+			done := make(chan bool, 1)
+			go func() {
+				_, err := os.Stat(appPaths.DataDir)
+				done <- (err == nil)
+			}()
+			select {
+			case ok := <-done:
+				if !ok {
+					log.Println("Data directory inaccessible — force exiting")
+					os.Exit(1)
+				}
+			case <-time.After(5 * time.Second):
+				log.Println("Data directory check timed out — force exiting")
+				os.Exit(1)
+			}
+		}
+	}()
+
 	// Handle graceful shutdown in background
 	go func() {
 		sigCh := make(chan os.Signal, 1)
