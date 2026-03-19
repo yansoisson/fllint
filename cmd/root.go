@@ -171,10 +171,19 @@ func Run(frontendFS fs.FS) {
 		log.Println("Sparkle: auto-update disabled (appcast not yet available)")
 	}
 
-	// Shared shutdown logic — safe to call from multiple goroutines
+	// Shared shutdown logic — safe to call from multiple goroutines.
+	// Includes a hard exit timeout to ensure the app is always killable,
+	// even if child processes are stuck (e.g. external SSD unplugged).
 	var shutdownOnce sync.Once
 	shutdown := func() {
 		shutdownOnce.Do(func() {
+			// Hard exit safety net — if graceful shutdown hangs, force exit
+			go func() {
+				time.Sleep(15 * time.Second)
+				log.Println("Shutdown timed out — force exiting")
+				os.Exit(1)
+			}()
+
 			log.Println("Shutting down...")
 			srv.StopQueue()
 			downloadMgr.StopAll()

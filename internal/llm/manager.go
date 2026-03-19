@@ -181,6 +181,10 @@ func (m *Manager) scanModels() []ModelInfo {
 		if !strings.HasSuffix(strings.ToLower(entry.Name()), ".gguf") {
 			continue
 		}
+		// Skip macOS AppleDouble resource fork files (created on external volumes)
+		if strings.HasPrefix(entry.Name(), "._") {
+			continue
+		}
 
 		lower := strings.ToLower(entry.Name())
 		if strings.Contains(lower, "mmproj") {
@@ -229,6 +233,10 @@ func (m *Manager) scanModelDir(dir string) *ModelInfo {
 			continue
 		}
 		if !strings.HasSuffix(strings.ToLower(entry.Name()), ".gguf") {
+			continue
+		}
+		// Skip macOS AppleDouble resource fork files (created on external volumes)
+		if strings.HasPrefix(entry.Name(), "._") {
 			continue
 		}
 		if strings.Contains(strings.ToLower(entry.Name()), "mmproj") {
@@ -339,6 +347,10 @@ func (m *Manager) scanHelperModels() []ModelInfo {
 				continue
 			}
 			if !strings.HasSuffix(strings.ToLower(entry.Name()), ".gguf") {
+				continue
+			}
+			// Skip macOS AppleDouble resource fork files (created on external volumes)
+			if strings.HasPrefix(entry.Name(), "._") {
 				continue
 			}
 			if strings.Contains(strings.ToLower(entry.Name()), "mmproj") {

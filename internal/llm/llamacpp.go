@@ -360,9 +360,20 @@ func (e *LlamaCppEngine) Stop() {
 		cancel()
 	}
 
-	// Wait for supervise to finish (it handles kill + cmd.Wait).
+	// Wait for supervise to finish, but don't block forever.
+	// If the filesystem is disconnected (e.g. external SSD unplugged),
+	// cmd.Wait() may hang indefinitely — use a timeout to stay killable.
 	if processDone != nil {
-		<-processDone
+		select {
+		case <-processDone:
+		case <-time.After(8 * time.Second):
+			log.Printf("[engine] Stop timed out waiting for process to exit — forcing cleanup")
+			e.mu.Lock()
+			if e.cmd != nil && e.cmd.Process != nil {
+				e.cmd.Process.Kill()
+			}
+			e.mu.Unlock()
+		}
 	}
 
 	e.mu.Lock()
