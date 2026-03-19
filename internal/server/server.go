@@ -498,8 +498,12 @@ func copyUploadedFile(src io.Reader, destPath string) error {
 		return err
 	}
 	defer dst.Close()
-	_, err = io.Copy(dst, src)
-	return err
+	if _, err = io.Copy(dst, src); err != nil {
+		return err
+	}
+	// Flush to disk — required for external volumes where metadata
+	// updates are deferred until sync.
+	return dst.Sync()
 }
 
 func (s *Server) getMemory(w http.ResponseWriter, r *http.Request) {
