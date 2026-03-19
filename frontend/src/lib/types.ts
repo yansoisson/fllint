@@ -59,6 +59,7 @@ export interface AppConfig {
 	ctx_size: number;
 	n_gpu_layers: number;
 	flash_attn: 'auto' | 'on' | 'off';
+	response_buffer: number;
 	pinned_models?: string[];
 	default_model_id?: string;
 	forward_params_to_external: boolean;
@@ -86,6 +87,12 @@ export interface SSEToken {
 	position?: number;
 	error?: string;
 	code?: string;
+	usage?: {
+		prompt_tokens: number;
+		completion_tokens: number;
+		context_size: number;
+		finish_reason: string;
+	};
 }
 
 export interface EngineStatusInfo {
@@ -95,6 +102,7 @@ export interface EngineStatusInfo {
 	error?: string;
 	has_vision: boolean;
 	load_progress?: number;
+	context_size?: number;
 }
 
 export interface EngineStatus {

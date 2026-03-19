@@ -49,6 +49,7 @@ type EngineStatusInfo struct {
 	Error        string  `json:"error,omitempty"`
 	HasVision    bool    `json:"has_vision"`
 	LoadProgress float64 `json:"load_progress,omitempty"`
+	ContextSize  int     `json:"context_size,omitempty"`
 }
 
 // ManagerStatus represents the overall system status visible to the frontend.
@@ -904,6 +905,9 @@ func (m *Manager) Status() ManagerStatus {
 			if state == EngineStateStarting {
 				info.LoadProgress = entry.Engine.LoadProgress()
 			}
+			if state == EngineStateReady {
+				info.ContextSize = entry.Engine.ContextSize()
+			}
 		}
 		status.Engines = append(status.Engines, info)
 	}
@@ -911,9 +915,10 @@ func (m *Manager) Status() ManagerStatus {
 	// Add external engines (always ready)
 	for modelID, engine := range m.externalEngines {
 		status.Engines = append(status.Engines, EngineStatusInfo{
-			ModelID:   modelID,
-			ModelName: engine.ModelName(),
-			State:     EngineStateReady.String(),
+			ModelID:     modelID,
+			ModelName:   engine.ModelName(),
+			State:       EngineStateReady.String(),
+			ContextSize: engine.ContextSize(),
 		})
 	}
 

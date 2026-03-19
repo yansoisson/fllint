@@ -34,9 +34,13 @@ type ChatMessage struct {
 }
 
 // Token represents a single streamed token from the LLM.
+// Usage fields are set once on the final chunk when stream_options.include_usage is true.
 type Token struct {
-	Content   string `json:"content,omitempty"`
-	Reasoning string `json:"reasoning,omitempty"`
+	Content          string `json:"content,omitempty"`
+	Reasoning        string `json:"reasoning,omitempty"`
+	PromptTokens     int    `json:"prompt_tokens,omitempty"`
+	CompletionTokens int    `json:"completion_tokens,omitempty"`
+	FinishReason     string `json:"finish_reason,omitempty"`
 }
 
 // Engine defines the interface for LLM inference backends.
@@ -50,6 +54,10 @@ type Engine interface {
 
 	// IsReady reports whether the engine is ready to accept requests.
 	IsReady() bool
+
+	// ContextSize returns the model's context window size (n_ctx).
+	// Returns 0 if unknown.
+	ContextSize() int
 }
 
 // StubEngine is a placeholder that returns canned responses for development.
@@ -87,6 +95,10 @@ func (s *StubEngine) ModelName() string {
 
 func (s *StubEngine) IsReady() bool {
 	return true
+}
+
+func (s *StubEngine) ContextSize() int {
+	return 4096
 }
 
 // imageToDataURI reads an uploaded image file from disk and returns a

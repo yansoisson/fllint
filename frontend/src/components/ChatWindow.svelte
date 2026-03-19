@@ -14,11 +14,21 @@
 		isDownloadActive,
 		getActiveDownloadsState,
 		startDownloadPolling,
-		startModelDownload
+		startModelDownload,
+		getContextUsage,
+		getResponseBuffer,
+		getLastResponseTruncated,
+		navigateToNewConversation
 	} from '$lib/stores.svelte';
 
 	let chatContainer: HTMLDivElement;
 	let hasMessages = $derived(getMessages().length > 0 || getIsStreaming());
+	let ctxUsage = $derived(getContextUsage());
+	let contextWarning = $derived(
+		ctxUsage && ctxUsage.contextSize > 0 &&
+		(ctxUsage.promptTokens + ctxUsage.completionTokens) / ctxUsage.contextSize >= 0.75 &&
+		!getLastResponseTruncated() && getChatError() !== 'context_limit_reached'
+	);
 
 	// Start download polling when we detect an active download (e.g. auto-download on first launch)
 	$effect(() => {
@@ -32,8 +42,9 @@
 		const __ = getStreamingContent();
 		const ___ = getStreamingReasoning();
 		if (chatContainer) {
+			const el = chatContainer;
 			requestAnimationFrame(() => {
-				chatContainer.scrollTop = chatContainer.scrollHeight;
+				if (el) el.scrollTop = el.scrollHeight;
 			});
 		}
 	});
@@ -53,10 +64,31 @@
 		}} isStreamingMessage={true} />
 	{/if}
 
-	{#if getChatError()}
+	{#if getLastResponseTruncated() && !getIsStreaming()}
+		<div class="context-hint truncation-note">
+			This response was cut short due to context limits.
+			<button class="hint-link" onclick={navigateToNewConversation}>Start a new chat</button>
+		</div>
+	{/if}
+
+	{#if getChatError() === 'context_limit_reached'}
+		<div class="error-banner context-limit">
+			<span>Context limit reached &mdash; start a new chat to continue.</span>
+			<div class="error-actions">
+				<button class="action-btn" onclick={navigateToNewConversation}>New Chat</button>
+				<button class="dismiss-btn" onclick={clearChatError}>Dismiss</button>
+			</div>
+		</div>
+	{:else if getChatError()}
 		<div class="error-banner">
 			<span>{getChatError()}</span>
 			<button class="dismiss-btn" onclick={clearChatError}>Dismiss</button>
+		</div>
+	{/if}
+
+	{#if contextWarning}
+		<div class="context-hint">
+			This conversation is getting long. Consider starting a new chat for best results.
 		</div>
 	{/if}
 
@@ -258,6 +290,57 @@
 
 	.dismiss-btn:hover {
 		background: var(--error-bg-hover);
+	}
+
+	.error-actions {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+	}
+
+	.action-btn {
+		padding: 4px 12px;
+		border-radius: var(--radius);
+		background: var(--accent);
+		color: white;
+		font-size: 0.8em;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.action-btn:hover {
+		background: var(--accent-hover);
+	}
+
+	.context-hint {
+		font-size: 0.82em;
+		color: var(--text-muted);
+		text-align: center;
+		padding: 8px 16px;
+		margin-top: 4px;
+		max-width: var(--content-max-width);
+		width: 100%;
+		align-self: center;
+	}
+
+	.truncation-note {
+		border-top: 1px solid var(--border);
+		padding-top: 10px;
+		margin-top: 8px;
+	}
+
+	.hint-link {
+		background: none;
+		border: none;
+		color: var(--accent);
+		cursor: pointer;
+		font-size: inherit;
+		padding: 0;
+		text-decoration: underline;
+	}
+
+	.hint-link:hover {
+		color: var(--accent-hover);
 	}
 
 </style>

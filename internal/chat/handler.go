@@ -66,6 +66,40 @@ type chatRequest struct {
 	Retry          bool                 `json:"retry,omitempty"`
 }
 
+// processToken extracts usage metadata from a token and returns true if
+// the token has content/reasoning to forward to the client.
+func processToken(
+	token llm.Token,
+	promptTokens *int, completionTokens *int, finishReason *string,
+	fullResponse *string, fullReasoning *string,
+	thinkingStart *time.Time, thinkingDuration **int,
+) bool {
+	// Track usage info (sent as a separate token from SSE parser)
+	if token.PromptTokens > 0 {
+		*promptTokens = token.PromptTokens
+		*completionTokens = token.CompletionTokens
+	}
+	if token.FinishReason != "" {
+		*finishReason = token.FinishReason
+	}
+
+	// Skip usage-only tokens (no content to forward)
+	if token.Content == "" && token.Reasoning == "" {
+		return false
+	}
+
+	if token.Reasoning != "" && thinkingStart.IsZero() {
+		*thinkingStart = time.Now()
+	}
+	if token.Content != "" && !thinkingStart.IsZero() && *thinkingDuration == nil {
+		d := int(time.Since(*thinkingStart).Seconds())
+		*thinkingDuration = &d
+	}
+	*fullResponse += token.Content
+	*fullReasoning += token.Reasoning
+	return true
+}
+
 func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	var req chatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -143,7 +177,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		if engine == nil {
 			if h.manager.IsSwitching() {
 				writeErrorJSON(w, http.StatusServiceUnavailable, "model_switching",
-					"Model is loading — please wait a moment and try again.")
+					"Model is loading \u2014 please wait a moment and try again.")
 			} else {
 				writeErrorJSON(w, http.StatusServiceUnavailable, "model_not_loaded",
 					"The selected model is not loaded. Please load it first.")
@@ -155,7 +189,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		if engine == nil {
 			if h.manager.IsSwitching() {
 				writeErrorJSON(w, http.StatusServiceUnavailable, "model_switching",
-					"Switching models — please wait a moment and try again.")
+					"Switching models \u2014 please wait a moment and try again.")
 			} else {
 				writeErrorJSON(w, http.StatusServiceUnavailable, "no_model",
 					"No model is loaded. Select a model to get started.")
@@ -250,7 +284,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "data: %s\n\n", firstEvent)
 	flusher.Flush()
 
-	// marshalToken builds the SSE JSON for a token, including reasoning if present.
+	// marshalToken builds the SSE JSON for a content/reasoning token.
 	marshalToken := func(token llm.Token) []byte {
 		event := map[string]string{}
 		if token.Content != "" {
@@ -269,6 +303,8 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	var fullReasoning string
 	var thinkingStart time.Time
 	var thinkingDuration *int
+	var promptTokens, completionTokens int
+	var finishReason string
 
 	if position > 0 {
 		// Send periodic position updates while waiting in the queue.
@@ -284,19 +320,13 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 				return
 			case token, ok := <-item.TokenCh:
 				if !ok {
-					// TokenCh closed — should not happen before DoneCh
+					// TokenCh closed \u2014 should not happen before DoneCh
 					break waitLoop
 				}
-				// First token arrived — we're now processing.
-				if token.Reasoning != "" && thinkingStart.IsZero() {
-					thinkingStart = time.Now()
+				if !processToken(token, &promptTokens, &completionTokens, &finishReason,
+					&fullResponse, &fullReasoning, &thinkingStart, &thinkingDuration) {
+					continue
 				}
-				if token.Content != "" && !thinkingStart.IsZero() && thinkingDuration == nil {
-					d := int(time.Since(thinkingStart).Seconds())
-					thinkingDuration = &d
-				}
-				fullResponse += token.Content
-				fullReasoning += token.Reasoning
 				fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
 				flusher.Flush()
 				break waitLoop
@@ -335,15 +365,10 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				goto done
 			}
-			if token.Reasoning != "" && thinkingStart.IsZero() {
-				thinkingStart = time.Now()
+			if !processToken(token, &promptTokens, &completionTokens, &finishReason,
+				&fullResponse, &fullReasoning, &thinkingStart, &thinkingDuration) {
+				continue
 			}
-			if token.Content != "" && !thinkingStart.IsZero() && thinkingDuration == nil {
-				d := int(time.Since(thinkingStart).Seconds())
-				thinkingDuration = &d
-			}
-			fullResponse += token.Content
-			fullReasoning += token.Reasoning
 			fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
 			flusher.Flush()
 		case err := <-item.ErrCh:
@@ -354,17 +379,11 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		case <-item.DoneCh:
 			// Drain any remaining tokens in the channel.
 			for token := range item.TokenCh {
-				if token.Reasoning != "" && thinkingStart.IsZero() {
-					thinkingStart = time.Now()
+				if processToken(token, &promptTokens, &completionTokens, &finishReason,
+					&fullResponse, &fullReasoning, &thinkingStart, &thinkingDuration) {
+					fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
+					flusher.Flush()
 				}
-				if token.Content != "" && !thinkingStart.IsZero() && thinkingDuration == nil {
-					d := int(time.Since(thinkingStart).Seconds())
-					thinkingDuration = &d
-				}
-				fullResponse += token.Content
-				fullReasoning += token.Reasoning
-				fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
-				flusher.Flush()
 			}
 			goto done
 		}
@@ -378,11 +397,31 @@ done:
 		flusher.Flush()
 	}
 
+	// Send usage info (context tracking for the frontend)
+	if promptTokens > 0 {
+		var ctxSize int
+		if engine := h.manager.GetEngine(modelID); engine != nil {
+			ctxSize = engine.ContextSize()
+		} else if engine := h.manager.Engine(); engine != nil {
+			ctxSize = engine.ContextSize()
+		}
+		usageData, _ := json.Marshal(map[string]interface{}{
+			"usage": map[string]interface{}{
+				"prompt_tokens":     promptTokens,
+				"completion_tokens": completionTokens,
+				"context_size":      ctxSize,
+				"finish_reason":     finishReason,
+			},
+		})
+		fmt.Fprintf(w, "data: %s\n\n", usageData)
+		flusher.Flush()
+	}
+
 	// Signal stream end
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
 
-	// Persist assistant response (only if there's actual content — reasoning-only
+	// Persist assistant response (only if there's actual content \u2014 reasoning-only
 	// partial responses from cancellations are discarded)
 	if fullResponse != "" {
 		assistantMsg := llm.ChatMessage{

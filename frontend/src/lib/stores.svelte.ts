@@ -77,6 +77,16 @@ let downloadPollTimer: ReturnType<typeof setInterval> | null = null;
 // --- Providers ---
 let providers = $state<Provider[]>([]);
 
+// --- Context Usage ---
+let contextUsage = $state<{
+	promptTokens: number;
+	completionTokens: number;
+	contextSize: number;
+	finishReason: string;
+} | null>(null);
+let responseBuffer = $state(2048);
+let lastResponseTruncated = $state(false);
+
 // --- Settings Navigation ---
 type SettingsTab = 'general' | 'models' | 'helper' | 'advanced';
 let settingsInitialTab = $state<SettingsTab>('general');
@@ -181,6 +191,15 @@ export function getSettingsInitialTab() {
 }
 export function getProviders() {
 	return providers;
+}
+export function getContextUsage() {
+	return contextUsage;
+}
+export function getResponseBuffer() {
+	return responseBuffer;
+}
+export function getLastResponseTruncated() {
+	return lastResponseTruncated;
 }
 
 /** Check if the effective model for this tab is currently loading (not ready for inference). */
@@ -314,6 +333,7 @@ export async function initApp() {
 					if (cfg.theme) applyTheme(cfg.theme as 'light' | 'dark' | 'system');
 					proMode = cfg.pro_mode ?? false;
 					pinnedModelIds = cfg.pinned_models ?? [];
+					responseBuffer = cfg.response_buffer ?? 2048;
 				}).catch(() => {});
 				// Refresh models in case loaded status changed
 				api.listModels().then((m) => (models = m)).catch(() => {});
@@ -346,6 +366,7 @@ export async function initApp() {
 			applyTheme(cfg.theme || 'system');
 			proMode = cfg.pro_mode ?? false;
 			pinnedModelIds = cfg.pinned_models ?? [];
+			responseBuffer = cfg.response_buffer ?? 2048;
 		}
 		if (results[4].status === 'fulfilled') memoryInfo = results[4].value;
 		if (results[5].status === 'fulfilled') downloadRegistry = results[5].value;
@@ -395,6 +416,7 @@ async function handleVisibilityChange() {
 		}
 		proMode = cfg.pro_mode ?? false;
 		pinnedModelIds = cfg.pinned_models ?? [];
+		responseBuffer = cfg.response_buffer ?? 2048;
 	} catch {
 		// ignore
 	}
@@ -657,6 +679,8 @@ export async function loadConversations() {
 export async function selectConversation(id: string) {
 	activeConversationId = id;
 	tabModelId = null; // reset per-tab override when switching conversations
+	contextUsage = null;
+	lastResponseTruncated = false;
 	try {
 		const conv = await api.getConversation(id);
 		messages = conv.messages;
@@ -678,6 +702,8 @@ export function newConversation() {
 	chatError = null;
 	tabModelId = null;
 	conversationModelId = null;
+	contextUsage = null;
+	lastResponseTruncated = false;
 }
 
 /** Navigate to new chat and reset state. Use this from sidebar/UI clicks. */
@@ -703,6 +729,17 @@ export async function deleteConversation(id: string) {
 
 export async function sendMessage(content: string, opts?: { noReasoning?: boolean }) {
 	chatError = null;
+	lastResponseTruncated = false;
+
+	// Check if context limit is reached before sending
+	if (contextUsage && contextUsage.contextSize > 0) {
+		const totalUsed = contextUsage.promptTokens + contextUsage.completionTokens;
+		const limit = contextUsage.contextSize - responseBuffer;
+		if (totalUsed > limit) {
+			chatError = 'context_limit_reached';
+			return;
+		}
+	}
 
 	const noReasoning = opts?.noReasoning ?? false;
 
@@ -803,10 +840,19 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 				queuePosition = null;
 				streamingContent += token.content;
 			}
+			if (token.usage) {
+				contextUsage = {
+					promptTokens: token.usage.prompt_tokens,
+					completionTokens: token.usage.completion_tokens,
+					contextSize: token.usage.context_size,
+					finishReason: token.usage.finish_reason,
+				};
+			}
 			if (token.error) {
 				chatError = token.error;
 			}
 		}
+		lastResponseTruncated = contextUsage?.finishReason === 'length';
 		if (streamingContent) {
 			const msg: ChatMessage = { role: 'assistant', content: streamingContent };
 			if (streamingReasoning) {

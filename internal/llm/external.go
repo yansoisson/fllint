@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fllint/fllint/internal/config"
@@ -24,6 +26,9 @@ type ExternalEngine struct {
 	dataDir    string
 	roles      []string // assigned roles (e.g. "main", "summary")
 	httpClient *http.Client
+
+	ctxSize     int
+	ctxSizeOnce sync.Once
 }
 
 // NewExternalEngine creates an engine that talks to an external server.
@@ -71,9 +76,10 @@ func (e *ExternalEngine) ChatStream(ctx context.Context, messages []ChatMessage)
 	}
 
 	req := oaiRequest{
-		Model:    e.modelName,
-		Messages: oaiMsgs,
-		Stream:   true,
+		Model:         e.modelName,
+		Messages:      oaiMsgs,
+		Stream:        true,
+		StreamOptions: &oaiStreamOptions{IncludeUsage: true},
 	}
 
 	// Optionally forward Fllint's inference params
@@ -143,4 +149,69 @@ func (e *ExternalEngine) ModelName() string {
 // IsReady implements Engine. External engines are always ready.
 func (e *ExternalEngine) IsReady() bool {
 	return true
+}
+
+// ContextSize returns the model's context window size, lazily fetched from the
+// provider's API. Returns 0 if the provider doesn't support context size discovery.
+func (e *ExternalEngine) ContextSize() int {
+	e.ctxSizeOnce.Do(func() {
+		e.ctxSize = e.fetchContextSize()
+	})
+	return e.ctxSize
+}
+
+// fetchContextSize queries the Ollama /api/show endpoint for the model's context length.
+// Returns 0 on any error (graceful degradation for non-Ollama providers).
+func (e *ExternalEngine) fetchContextSize() int {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	payload, _ := json.Marshal(map[string]string{"name": e.modelName})
+	req, err := http.NewRequestWithContext(ctx, "POST", e.baseURL+"/api/show", bytes.NewReader(payload))
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if e.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+e.apiKey)
+	}
+
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0
+	}
+
+	// Try to extract context length from Ollama's response.
+	// The format varies: model_info may have "general.context_length" or
+	// the model parameters may specify num_ctx.
+	var result struct {
+		ModelInfo map[string]interface{} `json:"model_info"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0
+	}
+
+	// Search for any key ending in ".context_length" — Ollama uses
+	// "{architecture}.context_length" (e.g. "general.context_length",
+	// "llama.context_length", "kimi-k2.context_length").
+	for key, v := range result.ModelInfo {
+		if strings.HasSuffix(key, ".context_length") {
+			if n, ok := v.(float64); ok && n > 0 {
+				return int(n)
+			}
+		}
+	}
+
+	log.Printf("Could not determine context size for external model %s", e.modelName)
+	return 0
 }

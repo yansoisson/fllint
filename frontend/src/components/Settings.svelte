@@ -1539,6 +1539,12 @@
 							</div>
 
 							<div class="field">
+								<span class="field-label">Response Buffer</span>
+								<p class="field-desc">Tokens reserved for the model's response. Prevents sending when context is nearly full.</p>
+								<input type="number" class="number-input" min="256" max="8192" step="256" bind:value={config.response_buffer} />
+							</div>
+
+							<div class="field">
 								<span class="field-label">GPU Layers</span>
 								<p class="field-desc">Number of layers offloaded to GPU. 999 = auto (all layers).</p>
 								<input type="number" class="number-input" min="0" max="999" bind:value={config.n_gpu_layers} />

@@ -422,6 +422,7 @@ func (e *LlamaCppEngine) ChatStream(ctx context.Context, messages []ChatMessage)
 		Model:         e.modelName,
 		Messages:      oaiMsgs,
 		Stream:        true,
+		StreamOptions: &oaiStreamOptions{IncludeUsage: true},
 		Temperature:   params.Temperature,
 		TopP:          params.TopP,
 		TopK:          params.TopK,
@@ -504,6 +505,11 @@ func (e *LlamaCppEngine) LoadProgress() float64 {
 	return e.loadProgress
 }
 
+// ContextSize returns the configured context window size (n_ctx).
+func (e *LlamaCppEngine) ContextSize() int {
+	return e.ctxSize
+}
+
 // --- OpenAI-compatible request types ---
 
 type oaiMessage struct {
@@ -511,17 +517,22 @@ type oaiMessage struct {
 	Content interface{} `json:"content"` // string or []oaiContentPart
 }
 
+type oaiStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
 type oaiRequest struct {
-	Model              string         `json:"model"`
-	Messages           []oaiMessage   `json:"messages"`
-	Stream             bool           `json:"stream"`
-	Temperature        float64        `json:"temperature,omitempty"`
-	TopP               float64        `json:"top_p,omitempty"`
-	TopK               int            `json:"top_k,omitempty"`
-	RepeatPenalty      float64        `json:"repeat_penalty,omitempty"`
-	MaxTokens          int            `json:"max_tokens,omitempty"`
-	Seed               int            `json:"seed,omitempty"`
-	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
+	Model              string            `json:"model"`
+	Messages           []oaiMessage      `json:"messages"`
+	Stream             bool              `json:"stream"`
+	StreamOptions      *oaiStreamOptions `json:"stream_options,omitempty"`
+	Temperature        float64           `json:"temperature,omitempty"`
+	TopP               float64           `json:"top_p,omitempty"`
+	TopK               int               `json:"top_k,omitempty"`
+	RepeatPenalty      float64           `json:"repeat_penalty,omitempty"`
+	MaxTokens          int               `json:"max_tokens,omitempty"`
+	Seed               int               `json:"seed,omitempty"`
+	ChatTemplateKwargs map[string]any    `json:"chat_template_kwargs,omitempty"`
 }
 
 type oaiContentPart struct {

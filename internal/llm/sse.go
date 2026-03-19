@@ -19,6 +19,8 @@ func parseOpenAISSE(ctx context.Context, body io.ReadCloser, ch chan<- Token) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
+	var lastFinishReason string
+
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -32,6 +34,7 @@ func parseOpenAISSE(ctx context.Context, body io.ReadCloser, ch chan<- Token) {
 			return
 		}
 
+
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
@@ -41,9 +44,33 @@ func parseOpenAISSE(ctx context.Context, body io.ReadCloser, ch chan<- Token) {
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
 		}
 
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+
+		// Track finish_reason across chunks
+		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != nil {
+			lastFinishReason = *chunk.Choices[0].FinishReason
+		}
+
+		// Usage info from the final chunk (when stream_options.include_usage is true)
+		if chunk.Usage != nil {
+			tok := Token{
+				PromptTokens:     chunk.Usage.PromptTokens,
+				CompletionTokens: chunk.Usage.CompletionTokens,
+				FinishReason:     lastFinishReason,
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case ch <- tok:
+			}
 			continue
 		}
 

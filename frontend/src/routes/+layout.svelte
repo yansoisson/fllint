@@ -2,6 +2,7 @@
 	import '../app.css';
 	import Sidebar from '$components/Sidebar.svelte';
 	import ModelSelector from '$components/ModelSelector.svelte';
+	import ContextBar from '$components/ContextBar.svelte';
 	import Settings from '$components/Settings.svelte';
 	import Toast from '$components/Toast.svelte';
 	import UnloadPopup from '$components/UnloadPopup.svelte';
@@ -33,6 +34,7 @@
 				</svg>
 			</button>
 			<ModelSelector />
+			<ContextBar />
 			<div class="spacer"></div>
 			<button class="icon-btn" onclick={() => goto('/settings')} title="Settings">
 				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

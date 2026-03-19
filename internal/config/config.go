@@ -35,9 +35,10 @@ type Config struct {
 	Seed          int     `json:"seed"`       // -1 = random
 
 	// Server / Engine
-	CtxSize    int    `json:"ctx_size"`
-	NGPULayers int    `json:"n_gpu_layers"` // 999 = auto
-	FlashAttn  string `json:"flash_attn"`   // "auto", "on", "off"
+	CtxSize        int    `json:"ctx_size"`
+	NGPULayers     int    `json:"n_gpu_layers"`     // 999 = auto
+	FlashAttn      string `json:"flash_attn"`       // "auto", "on", "off"
+	ResponseBuffer int    `json:"response_buffer"`  // tokens reserved for response, default 2048
 
 	// External Models
 	ForwardParamsToExternal bool `json:"forward_params_to_external"` // send inference params to external providers
@@ -76,9 +77,10 @@ func Default() Config {
 		MaxTokens:     0,
 		Seed:          -1,
 
-		CtxSize:    4096,
-		NGPULayers: 999,
-		FlashAttn:  "auto",
+		CtxSize:        4096,
+		NGPULayers:     999,
+		FlashAttn:      "auto",
+		ResponseBuffer: 2048,
 	}
 }
 
@@ -115,6 +117,9 @@ func (c *Config) WithDefaults() {
 	}
 	if c.FlashAttn == "" {
 		c.FlashAttn = d.FlashAttn
+	}
+	if c.ResponseBuffer == 0 {
+		c.ResponseBuffer = d.ResponseBuffer
 	}
 }
 
