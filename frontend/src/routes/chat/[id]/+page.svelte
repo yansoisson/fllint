@@ -9,10 +9,14 @@
 		getActiveConversationId
 	} from '$lib/stores.svelte';
 
-	// Load conversation when id param changes
+	// Load conversation when id param changes.
+	// Track last loaded ID locally to avoid reacting to external
+	// activeConversationId changes (e.g. navigateToNewConversation).
+	let lastLoadedId = '';
 	$effect(() => {
 		const id = $page.params.id;
-		if (id && id !== getActiveConversationId()) {
+		if (id && id !== lastLoadedId) {
+			lastLoadedId = id;
 			selectConversation(id);
 		}
 	});

@@ -3,6 +3,7 @@
 		getSettingsOpen,
 		toggleSettings,
 		applyTheme,
+		applyAccentColor,
 		syncConfig,
 		getModels,
 		loadModels,
@@ -329,6 +330,16 @@
 	async function setDefaultModel(modelId: string) {
 		if (!config) return;
 		config.default_model_id = modelId;
+
+		// Auto-pin the new default model so it appears in the selector
+		const currentPinned = config.pinned_models && config.pinned_models.length > 0
+			? [...config.pinned_models]
+			: [...pinnedIds];
+		if (!currentPinned.includes(modelId)) {
+			currentPinned.push(modelId);
+		}
+		config.pinned_models = currentPinned;
+
 		try {
 			config = await api.updateConfig(config);
 			syncConfig(config);
@@ -426,6 +437,7 @@
 			loading = false;
 		}
 		if (!config) return;
+		customAccentInput = config.accent_color || '';
 		// Load secondary data in the background — tab content is already visible
 		Promise.all([loadModels(), loadStatus(), loadDownloadRegistry(), loadProviders()]).catch(() => {});
 		api.listProviderTypes().then((t) => { providerTypes = t; }).catch(() => { providerTypes = []; });
@@ -495,10 +507,43 @@
 		if (!config) return;
 		config.theme = theme;
 		applyTheme(theme);
+		// Reapply accent color since hover shade depends on light/dark mode
+		applyAccentColor(config.accent_color || undefined);
 		api.updateConfig(config).then((c) => {
 			config = c;
 			syncConfig(c);
 		});
+	}
+
+	const accentPresets = [
+		{ hex: '', label: 'Gray' },
+		{ hex: '#3b82f6', label: 'Blue' },
+		{ hex: '#8b5cf6', label: 'Purple' },
+		{ hex: '#ef4444', label: 'Red' },
+		{ hex: '#f97316', label: 'Orange' },
+		{ hex: '#10a37f', label: 'Teal' },
+		{ hex: '#ec4899', label: 'Pink' },
+		{ hex: '#06b6d4', label: 'Cyan' },
+	] as const;
+
+	let customAccentInput = $state('');
+
+	function setAccentColor(hex: string) {
+		if (!config) return;
+		config.accent_color = hex;
+		applyAccentColor(hex || undefined);
+		customAccentInput = hex;
+		api.updateConfig(config).then((c) => {
+			config = c;
+			syncConfig(c);
+		});
+	}
+
+	function handleCustomAccentInput(value: string) {
+		customAccentInput = value;
+		if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+			setAccentColor(value);
+		}
 	}
 
 	function toggleProMode() {
@@ -707,6 +752,37 @@
 										</svg>
 										System
 									</button>
+								</div>
+							</div>
+						</section>
+
+						<!-- ==================== ACCENT COLOR ==================== -->
+						<section class="section">
+							<div class="field">
+								<span class="field-label">Accent Color</span>
+								<div class="accent-presets">
+									{#each accentPresets as preset}
+										<button
+											class="accent-swatch"
+											class:active={(config.accent_color || '') === preset.hex}
+											style="background-color: {preset.hex || '#6b7280'}"
+											onclick={() => setAccentColor(preset.hex)}
+											title={preset.label}
+											aria-label="Accent color: {preset.label}"
+										></button>
+									{/each}
+								</div>
+								<div class="accent-custom">
+									<label class="accent-custom-label" for="custom-accent">Custom</label>
+									<input
+										id="custom-accent"
+										type="text"
+										class="accent-custom-input"
+										placeholder="#hex"
+										value={customAccentInput}
+										oninput={(e) => handleCustomAccentInput(e.currentTarget.value)}
+										maxlength={7}
+									/>
 								</div>
 							</div>
 						</section>
@@ -1774,6 +1850,59 @@
 		border-color: var(--accent);
 		color: var(--accent);
 		background: var(--accent-light);
+	}
+
+	/* Accent Color */
+	.accent-presets {
+		display: flex;
+		gap: 8px;
+		flex-wrap: wrap;
+		margin-bottom: 8px;
+	}
+
+	.accent-swatch {
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		border: 2px solid transparent;
+		cursor: pointer;
+		transition: border-color var(--transition), transform var(--transition);
+		padding: 0;
+	}
+
+	.accent-swatch:hover {
+		transform: scale(1.1);
+	}
+
+	.accent-swatch.active {
+		border-color: var(--text-primary);
+		box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--text-secondary);
+	}
+
+	.accent-custom {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.accent-custom-label {
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
+	}
+
+	.accent-custom-input {
+		width: 90px;
+		padding: 4px 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--bg-input);
+		color: var(--text-primary);
+		font-size: 0.8125rem;
+		font-family: monospace;
+	}
+
+	.accent-custom-input::placeholder {
+		color: var(--text-muted);
 	}
 
 	/* Toggle */

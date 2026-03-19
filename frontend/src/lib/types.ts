@@ -48,6 +48,7 @@ export interface AppConfig {
 	data_dir: string;
 	models_dir: string;
 	theme: 'light' | 'dark' | 'system';
+	accent_color?: string;
 	pro_mode: boolean;
 	custom_instructions: string;
 	temperature: number;

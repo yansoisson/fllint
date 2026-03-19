@@ -16,8 +16,9 @@ type Config struct {
 	ModelsDir string `json:"models_dir"`
 
 	// General
-	Theme   string `json:"theme"` // "light", "dark", "system"
-	ProMode bool   `json:"pro_mode"`
+	Theme      string `json:"theme"`       // "light", "dark", "system"
+	AccentColor string `json:"accent_color"` // hex color like "#6b7280", empty = default gray
+	ProMode    bool   `json:"pro_mode"`
 
 	// Model Selector
 	PinnedModels   []string `json:"pinned_models"`              // model IDs shown in main selector (ordered)

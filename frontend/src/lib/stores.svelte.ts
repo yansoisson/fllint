@@ -313,11 +313,42 @@ export function applyTheme(theme: 'light' | 'dark' | 'system') {
 	document.documentElement.setAttribute('data-theme', effective);
 }
 
-/** Sync config state (pro_mode, pinned_models, theme) and broadcast to other tabs. */
-export function syncConfig(cfg: { pro_mode?: boolean; pinned_models?: string[]; theme?: string }) {
+/** Parse a hex color string into [r, g, b]. */
+function hexToRgb(hex: string): [number, number, number] {
+	hex = hex.replace('#', '');
+	if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+	return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
+}
+
+/** Adjust brightness: positive = lighter, negative = darker. Amount in 0-1 range. */
+function adjustBrightness(hex: string, amount: number): string {
+	const [r,g,b] = hexToRgb(hex);
+	const adjust = (c: number) => Math.max(0, Math.min(255, Math.round(c + (amount > 0 ? (255-c)*amount : c*amount))));
+	return `#${adjust(r).toString(16).padStart(2,'0')}${adjust(g).toString(16).padStart(2,'0')}${adjust(b).toString(16).padStart(2,'0')}`;
+}
+
+/** Apply a custom accent color to CSS variables. Empty/undefined = use CSS defaults. */
+export function applyAccentColor(hex?: string) {
+	const root = document.documentElement.style;
+	if (!hex) {
+		root.removeProperty('--accent');
+		root.removeProperty('--accent-hover');
+		root.removeProperty('--accent-light');
+		return;
+	}
+	const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+	const [r,g,b] = hexToRgb(hex);
+	root.setProperty('--accent', hex);
+	root.setProperty('--accent-hover', isDark ? adjustBrightness(hex, 0.2) : adjustBrightness(hex, -0.15));
+	root.setProperty('--accent-light', isDark ? `rgba(${r},${g},${b},0.12)` : `rgba(${r},${g},${b},0.08)`);
+}
+
+/** Sync config state (pro_mode, pinned_models, theme, accent_color) and broadcast to other tabs. */
+export function syncConfig(cfg: { pro_mode?: boolean; pinned_models?: string[]; theme?: string; accent_color?: string }) {
 	if (cfg.pro_mode !== undefined) proMode = cfg.pro_mode;
 	if (cfg.pinned_models !== undefined) pinnedModelIds = cfg.pinned_models;
 	if (cfg.theme) applyTheme(cfg.theme as 'light' | 'dark' | 'system');
+	if (cfg.accent_color !== undefined) applyAccentColor(cfg.accent_color || undefined);
 	configChannel?.postMessage({ type: 'config-updated' });
 }
 
@@ -352,6 +383,8 @@ export async function initApp() {
 	window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
 		if (currentTheme === 'system') {
 			applyTheme('system');
+			// Reapply accent color since hover shade depends on light/dark mode
+			api.getConfig().then((cfg) => applyAccentColor(cfg.accent_color || undefined)).catch(() => {});
 		}
 	});
 
@@ -367,6 +400,7 @@ export async function initApp() {
 				// Refresh full config from server to get all changes
 				api.getConfig().then((cfg) => {
 					if (cfg.theme) applyTheme(cfg.theme as 'light' | 'dark' | 'system');
+					applyAccentColor(cfg.accent_color || undefined);
 					proMode = cfg.pro_mode ?? false;
 					pinnedModelIds = cfg.pinned_models ?? [];
 					responseBuffer = cfg.response_buffer ?? 2048;
@@ -400,6 +434,7 @@ export async function initApp() {
 		if (results[3].status === 'fulfilled') {
 			const cfg = results[3].value;
 			applyTheme(cfg.theme || 'system');
+			applyAccentColor(cfg.accent_color || undefined);
 			proMode = cfg.pro_mode ?? false;
 			pinnedModelIds = cfg.pinned_models ?? [];
 			responseBuffer = cfg.response_buffer ?? 2048;
@@ -444,12 +479,13 @@ export async function initApp() {
 async function handleVisibilityChange() {
 	if (document.visibilityState !== 'visible') return;
 
-	// Refresh config (theme, pro_mode, pinned_models may have changed in another tab)
+	// Refresh config (theme, pro_mode, pinned_models, accent_color may have changed in another tab)
 	try {
 		const cfg = await api.getConfig();
 		if (cfg.theme && cfg.theme !== currentTheme) {
 			applyTheme(cfg.theme as 'light' | 'dark' | 'system');
 		}
+		applyAccentColor(cfg.accent_color || undefined);
 		proMode = cfg.pro_mode ?? false;
 		pinnedModelIds = cfg.pinned_models ?? [];
 		responseBuffer = cfg.response_buffer ?? 2048;
@@ -743,9 +779,12 @@ export function newConversation() {
 }
 
 /** Navigate to new chat and reset state. Use this from sidebar/UI clicks. */
-export function navigateToNewConversation() {
+export async function navigateToNewConversation() {
+	// Navigate first to avoid race condition: if we're on /chat/[id],
+	// calling newConversation() first clears activeConversationId which
+	// triggers the chat page's $effect to re-load the conversation.
+	await goto('/');
 	newConversation();
-	goto('/');
 }
 
 export async function deleteConversation(id: string) {
@@ -1173,6 +1212,11 @@ export async function loadActiveDownloads() {
 }
 
 export async function startModelDownload(registryId: string) {
+	// Guard: only allow downloads triggered by user interaction
+	if (typeof registryId !== 'string' || !registryId) {
+		console.warn('startModelDownload called with invalid registryId:', registryId);
+		return;
+	}
 	try {
 		await api.startDownload(registryId);
 		await loadActiveDownloads();
@@ -1202,8 +1246,11 @@ export function startDownloadPolling() {
 		);
 		if (!anyActive) {
 			stopDownloadPolling();
-			// Refresh models since a download may have completed
+			// Refresh models since a download may have completed.
+			// The backend rescans the models directory and returns the updated list.
 			await refreshModels();
+			// Also reload the plain model list to ensure the selector is up to date
+			await loadModels();
 		}
 	}, 1000);
 }
