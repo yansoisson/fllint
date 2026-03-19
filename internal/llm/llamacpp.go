@@ -564,8 +564,11 @@ func (e *LlamaCppEngine) HasVision() bool {
 func (e *LlamaCppEngine) buildOAIMessage(m ChatMessage) (oaiMessage, error) {
 	msg := oaiMessage{Role: m.Role}
 
+	// Inject document text into content (wrapped in XML tags)
+	effectiveContent := buildContentWithDocuments(m.Content, m.Documents)
+
 	if len(m.Images) == 0 {
-		msg.Content = m.Content
+		msg.Content = effectiveContent
 		return msg, nil
 	}
 
@@ -580,10 +583,10 @@ func (e *LlamaCppEngine) buildOAIMessage(m ChatMessage) (oaiMessage, error) {
 	// Multimodal: build content array
 	var parts []oaiContentPart
 
-	if m.Content != "" {
+	if effectiveContent != "" {
 		parts = append(parts, oaiContentPart{
 			Type: "text",
-			Text: m.Content,
+			Text: effectiveContent,
 		})
 	}
 

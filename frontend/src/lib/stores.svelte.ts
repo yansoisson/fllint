@@ -60,6 +60,12 @@ let pendingImages = $state<{ file: File; preview: string }[]>([]);
 let pendingDocuments = $state<{ file: File; name: string; ocrText?: string; ocrProcessing?: boolean }[]>([]);
 let chatError = $state<string | null>(null);
 
+// --- Draft Cache (restore input on send failure) ---
+let draftText = $state('');
+let draftImages = $state<{ file: File }[]>([]);
+let draftDocuments = $state<{ file: File; name: string; ocrText?: string }[]>([]);
+let sendFailed = $state<'pre-stream' | 'stream' | null>(null);
+
 // --- OCR ---
 let ocrPopup = $state<{ docIndex: number; filename: string; file: File; pageCount: number } | null>(null);
 let ocrJobId = $state<string | null>(null);
@@ -201,6 +207,12 @@ export function getResponseBuffer() {
 export function getLastResponseTruncated() {
 	return lastResponseTruncated;
 }
+export function getSendFailed() {
+	return sendFailed;
+}
+export function getDraftText() {
+	return draftText;
+}
 
 /** Check if the effective model for this tab is currently loading (not ready for inference). */
 export function isEffectiveModelLoading(): boolean {
@@ -243,6 +255,30 @@ export function openSettingsToTab(tab: SettingsTab) {
 
 export function clearChatError() {
 	chatError = null;
+	sendFailed = null;
+}
+
+export function clearDraftRestore() {
+	draftText = '';
+	draftImages = [];
+	draftDocuments = [];
+	sendFailed = null;
+}
+
+export function restoreDraftAttachments() {
+	if (draftImages.length > 0 && pendingImages.length === 0) {
+		pendingImages = draftImages.map((img) => ({
+			file: img.file,
+			preview: URL.createObjectURL(img.file)
+		}));
+	}
+	if (draftDocuments.length > 0 && pendingDocuments.length === 0) {
+		pendingDocuments = draftDocuments.map((doc) => ({
+			file: doc.file,
+			name: doc.name,
+			ocrText: doc.ocrText
+		}));
+	}
 }
 
 /** Set the per-tab model override. This doesn't change the conversation's stored model. */
@@ -727,9 +763,24 @@ export async function deleteConversation(id: string) {
 	}
 }
 
-export async function sendMessage(content: string, opts?: { noReasoning?: boolean }) {
+export async function sendMessage(content: string, opts?: { noReasoning?: boolean; retry?: boolean }) {
 	chatError = null;
 	lastResponseTruncated = false;
+
+	const noReasoning = opts?.noReasoning ?? false;
+	const isRetry = opts?.retry ?? false;
+
+	// Cache draft for restoration on failure (skip for retries and answerNow)
+	if (!isRetry && !noReasoning) {
+		draftText = content;
+		draftImages = pendingImages.map((img) => ({ file: img.file }));
+		draftDocuments = pendingDocuments.map((doc) => ({
+			file: doc.file,
+			name: doc.name,
+			ocrText: doc.ocrText
+		}));
+	}
+	sendFailed = null;
 
 	// Check if context limit is reached before sending
 	if (contextUsage && contextUsage.contextSize > 0) {
@@ -737,16 +788,15 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 		const limit = contextUsage.contextSize - responseBuffer;
 		if (totalUsed > limit) {
 			chatError = 'context_limit_reached';
+			sendFailed = 'pre-stream';
 			return;
 		}
 	}
 
-	const noReasoning = opts?.noReasoning ?? false;
-
-	// Upload pending images and documents first (skip if re-sending for answer-now)
+	// Upload pending images and documents first (skip if re-sending)
 	let imageUrls: string[] = [];
 	let documentAttachments: DocumentAttachment[] = [];
-	if (!noReasoning) {
+	if (!noReasoning && !isRetry) {
 		if (pendingImages.length > 0) {
 			try {
 				const uploads = await Promise.all(
@@ -755,6 +805,7 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 				imageUrls = uploads.map((result) => result.url);
 			} catch {
 				chatError = 'Failed to upload image. Please try again.';
+				sendFailed = 'pre-stream';
 				return;
 			}
 			clearPendingImages();
@@ -772,6 +823,7 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 				}));
 			} catch (err) {
 				chatError = err instanceof Error ? err.message : 'Failed to upload document. Please try again.';
+				sendFailed = 'pre-stream';
 				return;
 			}
 			clearPendingDocuments();
@@ -787,7 +839,7 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 		}
 		messages = [...messages, userMsg];
 
-		// Track what was sent so answerNow can re-use it
+		// Track what was sent so answerNow/retry can re-use it
 		lastSentContent = content;
 		lastSentImages = imageUrls;
 		lastSentDocuments = documentAttachments;
@@ -809,6 +861,12 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 	const isNewConversation = !activeConversationId;
 
 	try {
+		const streamOpts = noReasoning
+			? { noReasoning: true, retry: true }
+			: isRetry
+				? { retry: true }
+				: undefined;
+
 		for await (const token of api.streamChat(
 			content,
 			activeConversationId ?? undefined,
@@ -816,7 +874,7 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 			documentAttachments.length > 0 ? documentAttachments : undefined,
 			effectiveModelId ?? undefined,
 			streamAbortController.signal,
-			noReasoning ? { noReasoning: true, retry: true } : undefined
+			streamOpts
 		)) {
 			if (token.conversation_id && !activeConversationId) {
 				activeConversationId = token.conversation_id;
@@ -862,6 +920,10 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 				msg.thinking_duration = thinkingDuration;
 			}
 			messages = [...messages, msg];
+			// Message delivered successfully — clear the draft cache
+			draftText = '';
+			draftImages = [];
+			draftDocuments = [];
 		}
 		await loadConversations();
 		// Title generation is async — re-poll to pick up AI-generated title
@@ -890,8 +952,13 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 		} else {
 			const errorMessage = err instanceof Error ? err.message : 'Failed to get response.';
 			chatError = errorMessage;
+			sendFailed = 'stream';
 		}
 	} finally {
+		// If an SSE error was received during streaming, mark as stream failure
+		if (chatError && sendFailed === null) {
+			sendFailed = 'stream';
+		}
 		isStreaming = false;
 		streamingContent = '';
 		streamingReasoning = '';
@@ -917,6 +984,13 @@ export function answerNow() {
 	setTimeout(() => {
 		sendMessage(content, { noReasoning: true });
 	}, 50);
+}
+
+export async function retryLastMessage() {
+	if (sendFailed !== 'stream') return;
+	sendFailed = null;
+	chatError = null;
+	await sendMessage(lastSentContent, { retry: true });
 }
 
 export async function loadModels() {

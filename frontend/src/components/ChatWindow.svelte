@@ -18,7 +18,9 @@
 		getContextUsage,
 		getResponseBuffer,
 		getLastResponseTruncated,
-		navigateToNewConversation
+		navigateToNewConversation,
+		getSendFailed,
+		retryLastMessage
 	} from '$lib/stores.svelte';
 
 	let chatContainer: HTMLDivElement;
@@ -82,7 +84,12 @@
 	{:else if getChatError()}
 		<div class="error-banner">
 			<span>{getChatError()}</span>
-			<button class="dismiss-btn" onclick={clearChatError}>Dismiss</button>
+			<div class="error-actions">
+				{#if getSendFailed() === 'stream'}
+					<button class="action-btn" onclick={retryLastMessage}>Retry</button>
+				{/if}
+				<button class="dismiss-btn" onclick={clearChatError}>Dismiss</button>
+			</div>
 		</div>
 	{/if}
 

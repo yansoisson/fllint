@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ImagePreview from './ImagePreview.svelte';
 	import DocumentPreview from './DocumentPreview.svelte';
-	import { sendMessage, getIsStreaming, cancelStream, cancelQueueItem, addPendingImage, getPendingImages, addPendingDocument, getPendingDocuments, getQueuePosition, isEffectiveModelLoading, isOcrProcessing, getEffectiveModelId, getModels } from '$lib/stores.svelte';
+	import { sendMessage, getIsStreaming, cancelStream, cancelQueueItem, addPendingImage, getPendingImages, addPendingDocument, getPendingDocuments, getQueuePosition, isEffectiveModelLoading, isOcrProcessing, getEffectiveModelId, getModels, getSendFailed, getDraftText, restoreDraftAttachments, clearDraftRestore } from '$lib/stores.svelte';
 
 	let inputText = $state('');
 	let fileInput: HTMLInputElement;
@@ -28,6 +28,23 @@
 	let canAttachImage = $derived.by(() => {
 		const m = getModels().find((m) => m.id === getEffectiveModelId());
 		return m?.vision || m?.external;
+	});
+
+	$effect(() => {
+		if (getSendFailed() === 'pre-stream') {
+			const draft = getDraftText();
+			if (draft && !inputText.trim()) {
+				inputText = draft;
+			}
+			restoreDraftAttachments();
+			clearDraftRestore();
+			if (textareaEl) {
+				requestAnimationFrame(() => {
+					autoResize();
+					textareaEl.focus();
+				});
+			}
+		}
 	});
 
 	function getFileExtension(name: string): string {
