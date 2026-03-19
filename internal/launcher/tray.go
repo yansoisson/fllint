@@ -34,10 +34,14 @@ func RunTray(onOpen, onQuit func()) {
 						onOpen()
 					}
 				case <-mQuit.ClickedCh:
-					if onQuit != nil {
-						onQuit()
-					}
+					// Quit the tray immediately so the icon disappears,
+					// then run cleanup in the background. This ensures
+					// the UI is never stuck even if shutdown hangs
+					// (e.g. external SSD unplugged).
 					systray.Quit()
+					if onQuit != nil {
+						go onQuit()
+					}
 					return
 				}
 			}

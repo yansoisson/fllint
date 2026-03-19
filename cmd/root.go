@@ -219,6 +219,9 @@ func Run(frontendFS fs.FS) {
 		func() { shutdown() },
 	)
 
+	// Tray has exited — run shutdown (idempotent) and wait for cleanup.
+	// The hard exit timer inside shutdown() guarantees this won't hang forever.
+	shutdown()
 	log.Println("Fllint stopped.")
 }
 
