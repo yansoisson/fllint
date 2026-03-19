@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       HAS_APPLE_CERTS: ${{ secrets.APPLE_CERTIFICATE_P12 != '' && 'true' || 'false' }}
     steps:
