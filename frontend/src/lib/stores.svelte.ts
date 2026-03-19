@@ -67,6 +67,7 @@ let draftDocuments = $state<{ file: File; name: string; ocrText?: string }[]>([]
 let sendFailed = $state<'pre-stream' | 'stream' | null>(null);
 
 // --- OCR ---
+let ocrEnabled = $state(false); // whether an OCR model is configured
 let ocrPopup = $state<{ docIndex: number; filename: string; file: File; pageCount: number } | null>(null);
 let ocrJobId = $state<string | null>(null);
 let ocrProgress = $state<OcrJobStatus | null>(null);
@@ -456,6 +457,11 @@ export async function initApp() {
 			if (activeDownloads.some((d) => d.state === 'downloading' || d.state === 'queued')) {
 				startDownloadPolling();
 			}
+			// Check OCR availability (non-blocking)
+			api.getHelperModels().then((data) => {
+				const ocrSlot = data.slots.find((s: { slot: string }) => s.slot === 'OCR');
+				ocrEnabled = !!(ocrSlot?.configured_model_id);
+			}).catch(() => {});
 			return;
 		}
 
@@ -573,6 +579,14 @@ export function clearPendingDocuments() {
 }
 
 // --- OCR ---
+
+export function isOcrEnabled() {
+	return ocrEnabled;
+}
+
+export function setOcrEnabled(enabled: boolean) {
+	ocrEnabled = enabled;
+}
 
 export function getOcrPopup() {
 	return ocrPopup;

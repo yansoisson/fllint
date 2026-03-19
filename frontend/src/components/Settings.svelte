@@ -20,7 +20,8 @@
 		loadDownloadRegistry,
 		getSettingsInitialTab,
 		loadProviders,
-		getProviders
+		getProviders,
+		setOcrEnabled
 	} from '$lib/stores.svelte';
 	import * as api from '$lib/api';
 	import type { AppConfig, ModelInfo, DownloadStatus, Provider, ProviderTypeInfo, ProviderModel, SelectedModel, HelperSlotInfo } from '$lib/types';
@@ -88,6 +89,16 @@
 			loadHelperModels();
 		}
 		prevSummaryDownloaded = downloaded;
+	});
+
+	let prevOcrDownloaded = $state(false);
+	$effect(() => {
+		const reg = registryModels.find(m => m.id === 'helper-ocr-glm-ocr');
+		const downloaded = reg?.downloaded ?? false;
+		if (downloaded && !prevOcrDownloaded && activeTab === 'helper') {
+			loadHelperModels();
+		}
+		prevOcrDownloaded = downloaded;
 	});
 
 	function getProviderTypeInfo(type: string): ProviderTypeInfo | undefined {
@@ -1464,8 +1475,9 @@
 												value={slot.configured_model_id || ''}
 												onchange={(e) => {
 													const target = e.target as HTMLSelectElement;
-													saveHelperConfig({ ocr_model_id: target.value || undefined });
+													saveHelperConfig({ ocr_model_id: target.value });
 													slot.configured_model_id = target.value;
+													setOcrEnabled(!!target.value);
 												}}
 												disabled={savingHelper}
 											>

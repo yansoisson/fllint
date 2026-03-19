@@ -71,12 +71,9 @@ func (s *Service) StartOCR(pdfURL string, totalPages int, ocrPages []PageImage) 
 		return "", fmt.Errorf("No pages to process.")
 	}
 
-	// Resolve OCR model
+	// Resolve OCR model — no auto-detect, respect user's "None" choice
 	cfg := config.Get()
 	modelID := cfg.OCRModelID
-	if modelID == "" {
-		modelID = s.manager.AutoDetectHelperModel("OCR")
-	}
 	if modelID == "" {
 		return "", fmt.Errorf("No OCR model configured. Please configure one in Settings.")
 	}

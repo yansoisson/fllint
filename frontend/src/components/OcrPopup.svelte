@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getOcrPopup, getOcrProgress, closeOcrPopup, startOcrProcessing, cancelOcrProcessing, openSettingsToTab } from '$lib/stores.svelte';
+	import { getOcrPopup, getOcrProgress, closeOcrPopup, startOcrProcessing, cancelOcrProcessing, openSettingsToTab, isOcrEnabled } from '$lib/stores.svelte';
 	import { parsePageRange } from '$lib/pdf';
 
 	let pageInput = $state('all');
@@ -8,6 +8,7 @@
 	let popup = $derived(getOcrPopup());
 	let progress = $derived(getOcrProgress());
 	let isProcessing = $derived(progress?.status === 'processing');
+	let ocrAvailable = $derived(isOcrEnabled());
 
 	async function handleStart() {
 		if (!popup || starting) return;
@@ -48,7 +49,15 @@
 			<h3 class="popup-title">OCR — {popup.filename}</h3>
 			<p class="popup-desc">{popup.pageCount} page{popup.pageCount !== 1 ? 's' : ''} detected</p>
 
-			{#if isProcessing && progress}
+			{#if !ocrAvailable}
+				<div class="disabled-section">
+					<p class="disabled-text">OCR is not configured. Select an OCR model in Settings to extract text from scanned PDFs.</p>
+					<div class="popup-actions">
+						<button class="action-btn secondary" onclick={() => closeOcrPopup()}>Cancel</button>
+						<button class="action-btn primary" onclick={goToSettings}>Open Settings</button>
+					</div>
+				</div>
+			{:else if isProcessing && progress}
 				<div class="progress-section">
 					<div class="progress-bar">
 						<div
@@ -237,5 +246,16 @@
 	.cancel-btn:hover {
 		background: var(--bg-hover);
 		color: var(--text-primary);
+	}
+
+	.disabled-section {
+		text-align: center;
+	}
+
+	.disabled-text {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		margin-bottom: 16px;
+		line-height: 1.5;
 	}
 </style>

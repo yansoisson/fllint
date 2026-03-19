@@ -623,10 +623,9 @@ func (s *Server) listHelperModels(w http.ResponseWriter, r *http.Request) {
 			}
 			enabled = true
 		case "OCR":
+			// No auto-detect for OCR — respect the user's "None (OCR disabled)" choice.
+			// If the user has not configured a model, OCR stays disabled.
 			configuredID = cfg.OCRModelID
-			if configuredID == "" {
-				configuredID = s.llmManager.AutoDetectHelperModel("OCR")
-			}
 			enabled = true
 		}
 
