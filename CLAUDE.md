@@ -2,13 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Always take a look at README.md to build a deep understanding of the project and its purpose.
+See README.md for the project overview and user-facing documentation.
 
-Remember that the 1 folder philosophy is essential, you should never forget that. And that the project isn't only for nerds, so the entire system should be extremely robust with a good UX (clean error messages for everything that can go wrong), never forget that too.
+## Design Principles
 
-Push to github is already configured too (just use git push -u origin main to push after commit)
-
-The project should respect the computer of the user. It should be possible to terminate all background processes by quitting the app. And on MacOS, the "Fllint" text on the bottom should disappear if the app isn't active anymore, and, as mentioned earlier, the one folder structure is essential. 
+- **Single-folder architecture**: All app data (models, conversations, config) lives in one folder next to the `.app` bundle. No files should be scattered across the system. Deleting the folder removes everything.
+- **Robust UX for all users**: Every error that can occur should have a clear, user-friendly message. Don't assume technical knowledge.
+- **Respect the host machine**: Quitting the app must terminate all background processes (llama-server, watchdog). The menu bar icon must disappear when the app exits. No leftover daemons or caches.
 
 ## Known Issues
 
@@ -46,7 +46,7 @@ Single-binary local AI chat app. Go backend serves a SvelteKit SPA embedded via 
 
 - **Entry points**: `main.go` (prod, embeds frontend) / `main_dev.go` (dev, skips embed) — controlled by `//go:build dev` tag
 - **Bootstrap**: `cmd/root.go` — resolves paths via `internal/paths`, loads config, creates managers, starts HTTP server, opens browser, runs systray on main goroutine (macOS AppKit requirement)
-- **`internal/paths/`**: `Resolve()` returns `AppPaths{BinDir, DataDir, ModelsDir}`. Detection priority: env vars → macOS `.app` bundle → CWD defaults. Extensible for Linux AppImage.
+- **`internal/paths/`**: `Resolve()` returns `AppPaths{BinDir, DataDir, ModelsDir}`. Detection priority: env vars → macOS `.app` bundle → CWD defaults.
 - **`internal/llm/`**: `Engine` interface with `ChatStream` returning `<-chan Token`. `LlamaCppEngine` manages a `llama-server` child process and talks to it via OpenAI-compatible HTTP API (`/v1/chat/completions`). `ExternalEngine` talks to external OpenAI-compatible servers (Ollama, etc.) — no process management, always ready. `Manager` handles model discovery (scans `modelsDir/` for `.gguf` files), engine lifecycle, model switching with RWMutex, and external models from providers (ID format: `ext:{provider_id}:{model_name}`). `StubEngine` kept for development.
 - **`internal/chat/`**: SSE streaming handler (`http.Flusher`), conversation CRUD. `Store` persists conversations as individual JSON files in `{dataDir}/conversations/`.
 - **`internal/server/`**: chi router, middleware stack, SPA fallback serving. No `middleware.Timeout` — it wraps ResponseWriter and breaks SSE Flusher.

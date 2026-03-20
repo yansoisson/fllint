@@ -43,7 +43,7 @@
     <!-- Replace SUPublicEDKey with your actual EdDSA public key from generate_keys -->
     <!-- Update SUFeedURL if the repo or domain changes -->
     <key>SUFeedURL</key>
-    <string>https://fllint.github.io/fllint/appcast.xml</string>
+    <string>https://yansoisson.github.io/fllint/appcast.xml</string>
 
     <key>SUPublicEDKey</key>
     <string>1T2Hy5f2Pi2c80mpfWwjtqHpPCT8Wa/VzSKxz3CbS6o=</string>

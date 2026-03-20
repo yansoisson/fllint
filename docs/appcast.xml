@@ -215,20 +215,6 @@
 
     <item>
     <title>Version 0.4.13</title>
-    <pubDate>Thu, 19 Mar 2026 18:24:37 +0000</pubDate>
-    <sparkle:version>86</sparkle:version>
-    <sparkle:shortVersionString>0.4.13</sparkle:shortVersionString>
-    <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-    <enclosure
-      url="https://github.com/yansoisson/fllint/releases/download/v0.4.13/Fllint.zip"
-      type="application/octet-stream"
-      sparkle:edSignature="1hB52i09H/6HhpslL4vs81ySnYqFMcxWcacUPv/XE+xEzL6UyF168CqjsnV58wb64APEqknEsyaPtjRUpGWhDw=="
-      length="15632685"
-    />
-  </item>
-
-    <item>
-    <title>Version 0.4.13</title>
     <pubDate>Thu, 19 Mar 2026 18:30:39 +0000</pubDate>
     <sparkle:version>88</sparkle:version>
     <sparkle:shortVersionString>0.4.13</sparkle:shortVersionString>
@@ -252,48 +238,6 @@
       type="application/octet-stream"
       sparkle:edSignature="zv+qcOlr2woqCmmTcDCHIxT79RcMMaxVCqtpfGLcvSLvKHB/RopFtTeW66/h/rCeF3IAEH2KrDlIoPyQ0J8wCw=="
       length="15633189"
-    />
-  </item>
-
-    <item>
-    <title>Version 0.4.15</title>
-    <pubDate>Thu, 19 Mar 2026 19:06:13 +0000</pubDate>
-    <sparkle:version>92</sparkle:version>
-    <sparkle:shortVersionString>0.4.15</sparkle:shortVersionString>
-    <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-    <enclosure
-      url="https://github.com/yansoisson/fllint/releases/download/v0.4.15/Fllint.zip"
-      type="application/octet-stream"
-      sparkle:edSignature="M2OelN6wkkksgvYDoqCccxewCObV/xwfgmnElMIjS8YdHaI5tk6z4gDuRZVd+mt2mp490nVe1DkIwkLGvw/ODA=="
-      length="15635315"
-    />
-  </item>
-
-    <item>
-    <title>Version 0.4.15</title>
-    <pubDate>Thu, 19 Mar 2026 19:17:03 +0000</pubDate>
-    <sparkle:version>94</sparkle:version>
-    <sparkle:shortVersionString>0.4.15</sparkle:shortVersionString>
-    <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-    <enclosure
-      url="https://github.com/yansoisson/fllint/releases/download/v0.4.15/Fllint.zip"
-      type="application/octet-stream"
-      sparkle:edSignature="hlggXtF39GlPsnYOiiKL6NAC62OFBHslZlRPqEAk+MmRAHYIOrPrHo0JWHD9g3cLT3w6pLxy2LoGOfxYAU+NDA=="
-      length="15635772"
-    />
-  </item>
-
-    <item>
-    <title>Version 0.4.15</title>
-    <pubDate>Thu, 19 Mar 2026 19:36:48 +0000</pubDate>
-    <sparkle:version>96</sparkle:version>
-    <sparkle:shortVersionString>0.4.15</sparkle:shortVersionString>
-    <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-    <enclosure
-      url="https://github.com/yansoisson/fllint/releases/download/v0.4.15/Fllint.zip"
-      type="application/octet-stream"
-      sparkle:edSignature="QHtyzppocCeaDgbBTfvwSSPMfGSyEOHFqE70HJS5AMS40SMCnL8N1MzDGiVazKcUi0XMnbhQasp+/rsrvQu4AQ=="
-      length="15639321"
     />
   </item>
 
