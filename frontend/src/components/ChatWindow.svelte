@@ -52,7 +52,7 @@
 	});
 </script>
 
-<div class="chat-window" class:has-messages={hasMessages} bind:this={chatContainer}>
+<div class="chat-window" bind:this={chatContainer}>
 	{#each getMessages() as message}
 		<MessageBubble {message} />
 	{/each}
@@ -148,9 +148,6 @@
 		padding: 24px max(24px, calc((100% - var(--content-max-width)) / 2));
 		display: flex;
 		flex-direction: column;
-	}
-
-	.chat-window.has-messages {
 		flex: 1;
 	}
 
@@ -166,6 +163,7 @@
 		max-width: var(--content-max-width);
 		width: 100%;
 		align-self: center;
+		flex: 1;
 	}
 
 	.empty h2 {

@@ -22,7 +22,7 @@
 	});
 </script>
 
-<div class="content" class:centered={getMessages().length === 0 && !getIsStreaming()}>
+<div class="content">
 	<ChatWindow />
 	<InputBar />
 </div>
@@ -33,9 +33,5 @@
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
-	}
-
-	.content.centered {
-		justify-content: center;
 	}
 </style>

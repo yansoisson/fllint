@@ -1,7 +1,6 @@
 <script lang="ts">
 	import ChatWindow from '$components/ChatWindow.svelte';
 	import InputBar from '$components/InputBar.svelte';
-	import { getMessages, getIsStreaming } from '$lib/stores.svelte';
 	import { newConversation } from '$lib/stores.svelte';
 
 	// Ensure we're in "new chat" state when visiting /
@@ -10,7 +9,7 @@
 	});
 </script>
 
-<div class="content" class:centered={getMessages().length === 0 && !getIsStreaming()}>
+<div class="content">
 	<ChatWindow />
 	<InputBar />
 </div>
@@ -21,9 +20,5 @@
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
-	}
-
-	.content.centered {
-		justify-content: center;
 	}
 </style>
