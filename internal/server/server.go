@@ -867,6 +867,11 @@ func (s *Server) getVersion(w http.ResponseWriter, r *http.Request) {
 // --- Update handler ---
 
 func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.translocated {
+		respondErrorJSON(w, http.StatusServiceUnavailable, "update_unavailable",
+			"Auto-update is unavailable on first launch. Please close and reopen the app, then try again.")
+		return
+	}
 	if !updater.HelperExists() {
 		respondErrorJSON(w, http.StatusServiceUnavailable, "update_unavailable",
 			"Auto-update is not available. Check the GitHub releases page for new versions.")
