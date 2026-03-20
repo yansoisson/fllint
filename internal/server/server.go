@@ -86,6 +86,15 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 	// API routes
 	s.router.Route("/api", func(r chi.Router) {
 		chatHandler := chat.NewHandler(chatStore, llmManager, inferenceQueue, summaryService)
+		// Allow web search to fall back to Ollama Cloud provider's API key
+		chatHandler.SetWebSearchKeyResolver(func() string {
+			for _, p := range s.providerStore.List() {
+				if p.Type == provider.ProviderOllamaCloud && p.APIKey != "" {
+					return p.APIKey
+				}
+			}
+			return ""
+		})
 		r.Mount("/", chatHandler.Routes())
 
 		r.Get("/models", s.listModels)

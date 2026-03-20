@@ -23,16 +23,26 @@ type TitleGenerator interface {
 	GenerateTitle(convID, userContent, assistantResponse string)
 }
 
+// WebSearchKeyResolver returns the Ollama API key for web search.
+// Allows falling back to a provider's key if not configured directly.
+type WebSearchKeyResolver func() string
+
 // Handler holds dependencies for chat HTTP handlers.
 type Handler struct {
-	store    *Store
-	manager  *llm.Manager
-	queue    *queue.Queue
-	titleGen TitleGenerator
+	store           *Store
+	manager         *llm.Manager
+	queue           *queue.Queue
+	titleGen        TitleGenerator
+	webSearchKeyFn  WebSearchKeyResolver
 }
 
 func NewHandler(store *Store, manager *llm.Manager, q *queue.Queue, titleGen TitleGenerator) *Handler {
 	return &Handler{store: store, manager: manager, queue: q, titleGen: titleGen}
+}
+
+// SetWebSearchKeyResolver sets the function that resolves the web search API key.
+func (h *Handler) SetWebSearchKeyResolver(fn WebSearchKeyResolver) {
+	h.webSearchKeyFn = fn
 }
 
 // Routes returns a chi router with all chat-related routes.
@@ -261,11 +271,18 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		ctx = context.WithValue(ctx, llm.NoReasoningKey, true)
 	}
 
-	// Add web search tools if enabled and API key is configured
+	// Add web search tools if enabled
 	var webSearchAPIKey string
-	if cfg != nil && cfg.WebSearchEnabled && cfg.OllamaAPIKey != "" {
-		ctx = context.WithValue(ctx, llm.ToolsKey, tools.ToolDefinitions())
-		webSearchAPIKey = cfg.OllamaAPIKey
+	if cfg != nil && cfg.WebSearchEnabled {
+		// Try dedicated key first, then fall back to resolver (Ollama Cloud provider key)
+		key := cfg.OllamaAPIKey
+		if key == "" && h.webSearchKeyFn != nil {
+			key = h.webSearchKeyFn()
+		}
+		if key != "" {
+			ctx = context.WithValue(ctx, llm.ToolsKey, tools.ToolDefinitions())
+			webSearchAPIKey = key
+		}
 	}
 
 	item, position := h.queue.Enqueue(ctx, modelID, engineMessages)

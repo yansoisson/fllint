@@ -106,9 +106,9 @@ func WebFetch(ctx context.Context, apiKey, url string) (*FetchResult, error) {
 }
 
 // ToolDefinitions returns OpenAI-format tool definitions for web_search and web_fetch.
-func ToolDefinitions() []map[string]interface{} {
-	return []map[string]interface{}{
-		{
+func ToolDefinitions() []interface{} {
+	return []interface{}{
+		map[string]interface{}{
 			"type": "function",
 			"function": map[string]interface{}{
 				"name":        "web_search",
@@ -129,7 +129,7 @@ func ToolDefinitions() []map[string]interface{} {
 				},
 			},
 		},
-		{
+		map[string]interface{}{
 			"type": "function",
 			"function": map[string]interface{}{
 				"name":        "web_fetch",
