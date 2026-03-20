@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -203,27 +204,19 @@ func Run(frontendFS fs.FS) {
 		}
 	}()
 
-	// Volume watchdog: if the app's data directory becomes inaccessible
-	// (e.g. external SSD unplugged), force-exit immediately. Without this,
-	// the process hangs and the systray becomes unresponsive.
-	go func() {
-		for {
-			time.Sleep(2 * time.Second)
-			done := make(chan bool, 1)
-			go func() {
-				_, err := os.Stat(appPaths.DataDir)
-				done <- (err == nil)
-			}()
-			select {
-			case ok := <-done:
-				if !ok {
-					log.Println("Data directory inaccessible — force exiting")
-					os.Exit(1)
-				}
-			case <-time.After(5 * time.Second):
-				log.Println("Data directory check timed out — force exiting")
-				os.Exit(1)
-			}
+	// Volume watchdog: spawn a separate OS process that monitors the data
+	// directory. If it becomes inaccessible (e.g. external SSD unplugged),
+	// the watchdog sends SIGKILL to our process. This MUST be an external
+	// process because when the SSD is disconnected, the Go runtime's
+	// scheduler gets starved and in-process goroutines can't run os.Exit().
+	watchdogCmd := exec.Command("/bin/sh", "-c", fmt.Sprintf(
+		`while kill -0 %d 2>/dev/null; do sleep 2; if ! [ -d "%s" ]; then kill -9 %d; exit; fi; done`,
+		os.Getpid(), appPaths.DataDir, os.Getpid(),
+	))
+	watchdogCmd.Start()
+	defer func() {
+		if watchdogCmd.Process != nil {
+			watchdogCmd.Process.Kill()
 		}
 	}()
 
