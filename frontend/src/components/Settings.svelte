@@ -220,7 +220,7 @@
 		}
 		selectedModelRoles = roleMap;
 		try {
-			availableModels = await api.fetchProviderModels(p.id);
+			availableModels = (await api.fetchProviderModels(p.id)).sort((a, b) => a.name.localeCompare(b.name));
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : 'Failed to fetch models.';
 			showNotification(msg, 'error');

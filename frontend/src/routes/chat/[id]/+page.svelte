@@ -20,11 +20,15 @@
 			selectConversation(id);
 		}
 	});
+
+	let empty = $derived(getMessages().length === 0 && !getIsStreaming());
 </script>
 
-<div class="content">
-	<ChatWindow />
-	<InputBar />
+<div class="content" class:centered={empty}>
+	<div class="center-group" class:active={empty}>
+		<ChatWindow />
+		<InputBar />
+	</div>
 </div>
 
 <style>
@@ -33,5 +37,15 @@
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
+	}
+
+	.center-group {
+		display: contents;
+	}
+
+	.center-group.active {
+		display: flex;
+		flex-direction: column;
+		margin: auto 0;
 	}
 </style>
