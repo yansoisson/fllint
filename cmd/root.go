@@ -167,14 +167,11 @@ func Run(frontendFS fs.FS) {
 			}
 		}()
 
-		// Launch a background update check via Sparkle (macOS only).
-		// The helper binary shows the native Sparkle update dialog if available.
+		// Log Sparkle availability (update checks are user-initiated via Settings)
 		if updater.HelperExists() {
-			go func() {
-				if err := updater.CheckForUpdate(); err != nil {
-					log.Printf("Sparkle: %v", err)
-				}
-			}()
+			log.Println("Sparkle: auto-update available")
+		} else {
+			log.Println("Sparkle: helper not found, auto-update unavailable")
 		}
 	}
 

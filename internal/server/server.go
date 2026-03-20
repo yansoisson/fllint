@@ -27,6 +27,7 @@ import (
 	"github.com/fllint/fllint/internal/provider"
 	"github.com/fllint/fllint/internal/queue"
 	"github.com/fllint/fllint/internal/summary"
+	"github.com/fllint/fllint/internal/updater"
 	"github.com/fllint/fllint/internal/version"
 )
 
@@ -866,10 +867,16 @@ func (s *Server) getVersion(w http.ResponseWriter, r *http.Request) {
 // --- Update handler ---
 
 func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
-	// Auto-update is disabled until the appcast is publicly hosted
-	// (requires GitHub Pages, which needs a public repo).
-	respondErrorJSON(w, http.StatusServiceUnavailable, "update_unavailable",
-		"Auto-updates are not yet available. Check the GitHub releases page for new versions.")
+	if !updater.HelperExists() {
+		respondErrorJSON(w, http.StatusServiceUnavailable, "update_unavailable",
+			"Auto-update is not available. Check the GitHub releases page for new versions.")
+		return
+	}
+	if err := updater.CheckForUpdate(); err != nil {
+		respondErrorJSON(w, http.StatusInternalServerError, "update_error", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // --- SPA serving ---
