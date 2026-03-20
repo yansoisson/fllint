@@ -445,9 +445,13 @@ func (e *LlamaCppEngine) ChatStream(ctx context.Context, messages []ChatMessage)
 	if params.Seed >= 0 {
 		req.Seed = params.Seed
 	}
+	// Explicitly control thinking via chat_template_kwargs (requires --jinja).
+	// Without enable_thinking=true, some models' templates default to thinking
+	// disabled, causing smaller reasoning-capable models to skip thinking.
 	if ctx.Value(NoReasoningKey) == true {
-		// Pass enable_thinking=false via chat_template_kwargs (requires --jinja)
 		req.ChatTemplateKwargs = map[string]any{"enable_thinking": false}
+	} else {
+		req.ChatTemplateKwargs = map[string]any{"enable_thinking": true}
 	}
 
 	body, err := json.Marshal(req)
