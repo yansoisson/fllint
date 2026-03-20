@@ -1782,6 +1782,8 @@
 									<option value={8192}>8,192</option>
 									<option value={16384}>16,384</option>
 									<option value={32768}>32,768</option>
+									<option value={65536}>65,536</option>
+									<option value={131072}>131,072</option>
 								</select>
 							</div>
 

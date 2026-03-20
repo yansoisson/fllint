@@ -82,7 +82,7 @@ func Default() Config {
 		MaxTokens:     0,
 		Seed:          -1,
 
-		CtxSize:        4096,
+		CtxSize:        32768,
 		NGPULayers:     999,
 		FlashAttn:      "auto",
 		ResponseBuffer: 2048,
