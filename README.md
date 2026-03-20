@@ -1,18 +1,18 @@
-# 🔥 Fllint
+# Fllint
 
 **Local AI for everyone — not just for engineers.**
 
-Fllint is an open-source application that runs large language models entirely on your Mac or Linux PC. No cloud, no API keys, no telemetry. Just AI that works — out of the box, without a terminal, and without scattering files all over your system.
+Fllint is an open-source application that runs large language models entirely on your Mac. No cloud, no API keys, no telemetry. Just AI that works — out of the box, without a terminal, and without scattering files all over your system.
 
-🌐 [fllint.io](https://fllint.io)
+[fllint.io](https://fllint.io)
 
 ---
 
 ## Why Fllint?
 
-Running AI locally should be simple. Download, open, chat — that's it. No configuration, no command line, no guesswork about which model to pick or which settings to change. Fllint ships with a ready-to-use model included, so there's nothing to set up after installing. Open the app and start chatting.
+Running AI locally should be simple. Download, open, chat — that's it. No configuration, no command line, no guesswork about which model to pick or which settings to change. Fllint ships everything you need, so there's nothing to set up after installing.
 
-At the same time, local AI tools shouldn't treat your computer like their own. Fllint lives in a single folder. Every model, every conversation, every config file — one folder. Delete it and Fllint is gone. Completely. No leftover daemons, no hidden caches, no ghost processes.
+At the same time, local AI tools shouldn't treat your computer like their own. Fllint lives in a single folder. Every model, every conversation, every config file — one folder. Delete it and Fllint is gone. Completely. No leftover daemons, no hidden caches, no ghost processes. Run it from an external SSD and there's zero footprint on the host machine.
 
 And for those who *do* want full control: Pro Mode exposes every parameter, every backend setting, every knob. Fllint scales from "I just want to chat" to "I need to fine-tune inference behavior for my research workflow."
 
@@ -20,38 +20,31 @@ And for those who *do* want full control: Pro Mode exposes every parameter, ever
 
 ## Features
 
-### v1.0
-
-- **Chat with three model tiers** — Lite, Standard, and Pro (ships with Qwen 3.5 35B A3B)
-- **Lite model included** — bundled with the download, ready to use immediately
+- **Three model tiers** — Lite, Standard, and Pro, downloadable from within the app
+- **Custom models** — add any GGUF model with optional vision projection (mmproj) support
+- **External providers** — connect to Ollama or other OpenAI-compatible servers
 - **Image upload** — send images to vision-capable models directly in the chat
+- **Document upload** — attach PDFs with optional OCR text extraction via GLM-OCR
+- **Conversation history** — automatic titles, persistent storage, full CRUD
 - **Single-folder architecture** — everything in one place, clean uninstall guaranteed
-- **Pro Mode** — full control over model parameters and backend settings
-- **Auto-updates** — check for and install updates directly from the app (macOS)
-
-### Roadmap
-
-- 🌐 **Web Search** — search the internet from the chat
-- 📄 **Document Upload** — upload and query PDFs, text files, and more
-- 🎙️ **Voice Input** — local speech-to-text via Whisper
-- 🧠 **Memory & Projects** — persistent memory with RAG, optional OCR via GLM-OCR
-- 🧩 **Custom Models** — add any compatible LLM from Hugging Face
-- 💾 **External Disk Mode** — zero footprint on the host machine
-- 🔬 **Deep Research Agent** — multi-step research with source synthesis
-- 🔌 **MCP Support** — Model Context Protocol for tool and service integrations
-- 🐍 **Skills** — sandboxed Python execution with package support
+- **External disk support** — run entirely from an external SSD with zero trace on the host
+- **Pro Mode** — full control over model parameters, context size, GPU layers, and backend settings
+- **Multi-model loading** — load multiple models simultaneously and switch between them per tab
+- **Helper models** — dedicated small models for conversation summaries and OCR
+- **Customizable accent color** — personalize the UI with preset or custom colors
+- **Auto-updates** — check for and install updates directly from the app via Sparkle
 
 ---
 
 ## How It Works
 
-Fllint consists of two parts: a **launcher** and a **data folder**.
+Fllint is a **macOS application** consisting of a launcher and a data folder.
 
-The launcher is a lightweight app that lives in your Applications folder (macOS) or runs as a `.desktop` entry or AppImage (Linux). Double-click it and Fllint starts a local llama.cpp server and opens the UI in your browser — no terminal involved. A tray icon shows that Fllint is running and lets you quit cleanly.
+Double-click the app and Fllint starts a local llama.cpp server and opens the UI in your browser — no terminal involved. A menu bar icon shows that Fllint is running and lets you quit cleanly.
 
 The data folder contains everything else: models, conversations, config. One folder, your choice where it lives.
 
-**Uninstall:** delete the launcher, delete the folder. That's it.
+**Uninstall:** delete the app, delete the folder. That's it.
 
 ---
 
@@ -59,21 +52,23 @@ The data folder contains everything else: models, conversations, config. One fol
 
 Under the hood, Fllint is a **localhost web application** powered by a **llama.cpp backend**.
 
-- **One UI for all platforms** — no separate native apps for macOS and Linux
-- **Browser-based** — works in any modern browser, feels like a native app
-- **llama.cpp** — battle-tested inference, optimized for Apple Silicon and GPU on Linux
+- **Go backend** — serves a SvelteKit SPA embedded in a single binary via chi router
+- **SvelteKit frontend** — Svelte 5 with runes, adapter-static in SPA mode
+- **llama.cpp** — battle-tested inference engine, optimized for Apple Silicon
+- **SSE streaming** — real-time token streaming from model to browser
+- **Browser-based UI** — works in any modern browser, feels like a native app
 
 ---
 
 ## Hardware Requirements
 
-| Model Tier | VRAM | Best For |
+| Model Tier | RAM | Best For |
 |---|---|---|
-| **Lite** | 8 GB+ | Quick answers, lighter hardware |
-| **Standard** | 16 GB+ | Balanced quality and speed |
-| **Pro** | 32 GB+ | Maximum capability (Qwen 3.5 35B A3B) |
+| **Lite** (~2 GB) | 8 GB+ | Quick answers, lighter hardware |
+| **Standard** (~9 GB) | 16 GB+ | Balanced quality and speed |
+| **Pro** (~22 GB) | 32 GB+ | Maximum capability |
 
-**Supported platforms:** macOS (Apple Silicon required) · Linux (x86_64, dedicated GPU with 8 GB+ VRAM)
+**Supported platform:** macOS (Apple Silicon required)
 
 ---
 
