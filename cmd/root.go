@@ -24,6 +24,7 @@ import (
 	"github.com/fllint/fllint/internal/prompt"
 	"github.com/fllint/fllint/internal/provider"
 	"github.com/fllint/fllint/internal/server"
+	"github.com/fllint/fllint/internal/updater"
 )
 
 // Run is the main entry point for the application.
@@ -166,10 +167,15 @@ func Run(frontendFS fs.FS) {
 			}
 		}()
 
-		// Auto-update is disabled until the repo is public and GitHub Pages
-		// can serve the appcast. The Sparkle framework and helper remain in
-		// the bundle so it can be re-enabled later without a new build.
-		log.Println("Sparkle: auto-update disabled (appcast not yet available)")
+		// Launch a background update check via Sparkle (macOS only).
+		// The helper binary shows the native Sparkle update dialog if available.
+		if updater.HelperExists() {
+			go func() {
+				if err := updater.CheckForUpdate(); err != nil {
+					log.Printf("Sparkle: %v", err)
+				}
+			}()
+		}
 	}
 
 	// Shared shutdown logic — safe to call from multiple goroutines.
