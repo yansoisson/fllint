@@ -73,6 +73,15 @@ const helperDirName = "Helper-hewrow-Nipju6-mecnop"
 // HelperSlots lists the supported helper model slots.
 var HelperSlots = []string{"Summary", "OCR", "Embedding"}
 
+// ExternalModelEngine extends Engine with methods needed by Manager for
+// external model management (role assignment, provider tracking).
+type ExternalModelEngine interface {
+	Engine
+	HasRole(role string) bool
+	ProviderID() string
+	SetRoles(roles []string)
+}
+
 // Manager handles model discovery and engine lifecycle.
 // It supports multiple concurrent llama-server processes, one per loaded model,
 // as well as external engines that talk to remote model servers.
@@ -80,8 +89,8 @@ type Manager struct {
 	mu     sync.RWMutex
 	loadMu sync.Mutex // serialises LoadModel/UnloadModel calls without blocking reads
 
-	engines         map[string]*EngineEntry    // modelID -> running local engine
-	externalEngines map[string]*ExternalEngine // modelID -> external engine (always ready)
+	engines         map[string]*EngineEntry       // modelID -> running local engine
+	externalEngines map[string]ExternalModelEngine // modelID -> external engine (always ready)
 	models          []ModelInfo
 	defaultModelID  string // the "active" model for backward compat
 
@@ -101,7 +110,7 @@ func NewManager(serverBinaryPath string, modelsDir string, dataDir string, provi
 		modelsDir:        modelsDir,
 		dataDir:          dataDir,
 		engines:          make(map[string]*EngineEntry),
-		externalEngines:  make(map[string]*ExternalEngine),
+		externalEngines:  make(map[string]ExternalModelEngine),
 		providerStore:    providerStore,
 	}
 
@@ -772,7 +781,7 @@ func (m *Manager) ListModels() []ModelInfo {
 			Name:       engine.ModelName(),
 			Tier:       TierExternal,
 			External:   true,
-			ProviderID: engine.providerID,
+			ProviderID: engine.ProviderID(),
 			Loaded:     true,
 			Active:     modelID == m.defaultModelID,
 		})
@@ -821,7 +830,7 @@ func (m *Manager) ListHelperModels() map[string][]ModelInfo {
 					Name:       engine.ModelName(),
 					Tier:       TierExternal,
 					External:   true,
-					ProviderID: engine.providerID,
+					ProviderID: engine.ProviderID(),
 					Loaded:     true,
 				})
 			}
@@ -1082,7 +1091,7 @@ func (m *Manager) Stop() {
 		}
 	}
 	m.engines = make(map[string]*EngineEntry)
-	m.externalEngines = make(map[string]*ExternalEngine)
+	m.externalEngines = make(map[string]ExternalModelEngine)
 	m.defaultModelID = ""
 	m.mu.Unlock()
 
@@ -1120,19 +1129,26 @@ func (m *Manager) RefreshExternalModels() {
 	defer m.mu.Unlock()
 
 	// Build new external engines map
-	newEngines := make(map[string]*ExternalEngine)
+	newEngines := make(map[string]ExternalModelEngine)
 	for _, p := range providers {
 		if !p.Enabled {
 			continue
 		}
 		for _, model := range p.Models {
 			modelID := fmt.Sprintf("ext:%s:%s", p.ID, model.Name)
-			// Reuse existing engine if already registered and roles match
+			// Reuse existing engine if already registered
 			if existing, ok := m.externalEngines[modelID]; ok {
-				existing.roles = model.Roles
+				existing.SetRoles(model.Roles)
 				newEngines[modelID] = existing
 			} else {
-				newEngines[modelID] = NewExternalEngine(p.BaseURL, p.APIKey, model.Name, p.ID, m.dataDir, model.Roles)
+				// Create engine based on provider type
+				switch p.Type {
+				case provider.ProviderAnthropic:
+					newEngines[modelID] = NewAnthropicEngine(p.BaseURL, p.APIKey, model.Name, p.ID, m.dataDir, model.Roles)
+				default:
+					// OpenAI-compatible: Ollama, OpenAI, OpenRouter
+					newEngines[modelID] = NewExternalEngine(p.BaseURL, p.APIKey, model.Name, p.ID, m.dataDir, model.Roles)
+				}
 			}
 		}
 	}

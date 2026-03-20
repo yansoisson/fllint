@@ -110,3 +110,29 @@ func (c *OllamaClient) setAuth(req *http.Request) {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 }
+
+// ollamaAdapter wraps OllamaClient to implement the ProviderClient interface.
+type ollamaAdapter struct {
+	client *OllamaClient
+}
+
+// NewOllamaClientAdapter creates a ProviderClient backed by OllamaClient.
+func NewOllamaClientAdapter(baseURL, apiKey string) ProviderClient {
+	return &ollamaAdapter{client: NewOllamaClient(baseURL, apiKey)}
+}
+
+func (a *ollamaAdapter) TestConnection(ctx context.Context) error {
+	return a.client.TestConnection(ctx)
+}
+
+func (a *ollamaAdapter) ListModels(ctx context.Context) ([]ProviderModel, error) {
+	models, err := a.client.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ProviderModel, len(models))
+	for i, m := range models {
+		result[i] = ProviderModel{Name: m.Name, Size: m.Size}
+	}
+	return result, nil
+}

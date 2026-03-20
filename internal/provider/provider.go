@@ -4,8 +4,11 @@ package provider
 type ProviderType string
 
 const (
-	ProviderOllamaLocal ProviderType = "ollama-local"
-	ProviderOllamaCloud ProviderType = "ollama-cloud"
+	ProviderOllamaLocal  ProviderType = "ollama-local"
+	ProviderOllamaCloud  ProviderType = "ollama-cloud"
+	ProviderOpenAI       ProviderType = "openai"
+	ProviderAnthropic    ProviderType = "anthropic"
+	ProviderOpenRouter   ProviderType = "openrouter"
 )
 
 // ProviderTypeInfo describes a provider type's capabilities and UI hints.
@@ -30,6 +33,24 @@ func RegisteredTypes() []ProviderTypeInfo {
 			Label:       "Ollama Cloud",
 			RequiresKey: true,
 			DefaultURL:  "https://ollama.com",
+		},
+		{
+			Type:        ProviderOpenAI,
+			Label:       "OpenAI",
+			RequiresKey: true,
+			DefaultURL:  "https://api.openai.com",
+		},
+		{
+			Type:        ProviderAnthropic,
+			Label:       "Anthropic",
+			RequiresKey: true,
+			DefaultURL:  "https://api.anthropic.com",
+		},
+		{
+			Type:        ProviderOpenRouter,
+			Label:       "OpenRouter",
+			RequiresKey: true,
+			DefaultURL:  "https://openrouter.ai/api",
 		},
 	}
 }

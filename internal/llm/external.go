@@ -60,6 +60,16 @@ func (e *ExternalEngine) HasRole(role string) bool {
 	return false
 }
 
+// ProviderID returns the provider ID for this engine.
+func (e *ExternalEngine) ProviderID() string {
+	return e.providerID
+}
+
+// SetRoles updates the assigned roles.
+func (e *ExternalEngine) SetRoles(roles []string) {
+	e.roles = roles
+}
+
 // ChatStream implements Engine. It POSTs to the server's OpenAI-compatible
 // /v1/chat/completions endpoint and streams tokens back.
 func (e *ExternalEngine) ChatStream(ctx context.Context, messages []ChatMessage) (<-chan Token, error) {

@@ -667,7 +667,7 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := provider.NewOllamaClient(p.BaseURL, p.APIKey)
+	client := provider.NewClient(*p)
 	if err := client.TestConnection(r.Context()); err != nil {
 		respondErrorJSON(w, http.StatusBadGateway, "connection_error", err.Error())
 		return
@@ -683,7 +683,7 @@ func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := provider.NewOllamaClient(p.BaseURL, p.APIKey)
+	client := provider.NewClient(*p)
 	models, err := client.ListModels(r.Context())
 	if err != nil {
 		respondErrorJSON(w, http.StatusBadGateway, "connection_error", err.Error())
