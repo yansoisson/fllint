@@ -76,6 +76,7 @@
 	const MODEL_ROLES = [
 		{ id: 'main', label: 'Main' },
 		{ id: 'summary', label: 'Summary' },
+		{ id: 'ocr', label: 'OCR' },
 	] as const;
 	let deletingProviderId = $state<string | null>(null);
 	let managingModelsId = $state<string | null>(null);
