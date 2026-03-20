@@ -25,23 +25,38 @@ type DocumentAttachment struct {
 
 // ChatMessage represents a single message in a conversation.
 type ChatMessage struct {
-	Role             string               `json:"role"` // "user", "assistant", "system"
+	Role             string               `json:"role"` // "user", "assistant", "system", "tool"
 	Content          string               `json:"content"`
 	Reasoning        string               `json:"reasoning,omitempty"`
 	ThinkingDuration *int                 `json:"thinking_duration,omitempty"`
 	Images           []string             `json:"images,omitempty"`    // URLs like "/api/uploads/uuid.png"
 	Documents        []DocumentAttachment `json:"documents,omitempty"` // Attached documents with extracted text
+	ToolCalls        []ToolCall           `json:"tool_calls,omitempty"` // Tool calls made by assistant
+	ToolCallID       string               `json:"tool_call_id,omitempty"` // For tool result messages
+}
+
+// ToolCall represents a function call requested by the model.
+type ToolCall struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Arguments string `json:"arguments"` // JSON string
 }
 
 // Token represents a single streamed token from the LLM.
 // Usage fields are set once on the final chunk when stream_options.include_usage is true.
 type Token struct {
-	Content          string `json:"content,omitempty"`
-	Reasoning        string `json:"reasoning,omitempty"`
-	PromptTokens     int    `json:"prompt_tokens,omitempty"`
-	CompletionTokens int    `json:"completion_tokens,omitempty"`
-	FinishReason     string `json:"finish_reason,omitempty"`
+	Content          string     `json:"content,omitempty"`
+	Reasoning        string     `json:"reasoning,omitempty"`
+	PromptTokens     int        `json:"prompt_tokens,omitempty"`
+	CompletionTokens int        `json:"completion_tokens,omitempty"`
+	FinishReason     string     `json:"finish_reason,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ToolStatus       string     `json:"tool_status,omitempty"` // "searching", "fetching" — for frontend indicator
 }
+
+// ToolsKey is the context key for passing tool definitions to engines.
+type toolsKeyType string
+const ToolsKey toolsKeyType = "tools"
 
 // Engine defines the interface for LLM inference backends.
 type Engine interface {
@@ -157,6 +172,28 @@ func buildContentWithDocuments(content string, docs []DocumentAttachment) string
 // Shared between LlamaCppEngine and ExternalEngine.
 func buildOAIMessageWithImages(dataDir string, m ChatMessage) (oaiMessage, error) {
 	msg := oaiMessage{Role: m.Role}
+
+	// Handle tool result messages
+	if m.Role == "tool" {
+		msg.Content = m.Content
+		msg.ToolCallID = m.ToolCallID
+		return msg, nil
+	}
+
+	// Handle assistant messages with tool calls
+	if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+		msg.Content = m.Content
+		for _, tc := range m.ToolCalls {
+			msg.ToolCalls = append(msg.ToolCalls, oaiToolCallChunk{
+				ID: tc.ID,
+				Function: struct {
+					Name      string `json:"name,omitempty"`
+					Arguments string `json:"arguments,omitempty"`
+				}{Name: tc.Name, Arguments: tc.Arguments},
+			})
+		}
+		return msg, nil
+	}
 
 	// Inject document text into content
 	effectiveContent := buildContentWithDocuments(m.Content, m.Documents)

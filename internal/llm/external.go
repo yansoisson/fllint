@@ -105,6 +105,11 @@ func (e *ExternalEngine) ChatStream(ctx context.Context, messages []ChatMessage)
 		}
 	}
 
+	// Add tools if provided via context
+	if toolDefs, ok := ctx.Value(ToolsKey).([]interface{}); ok && len(toolDefs) > 0 {
+		req.Tools = toolDefs
+	}
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode request: %w", err)

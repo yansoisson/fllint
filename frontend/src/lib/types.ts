@@ -64,6 +64,8 @@ export interface AppConfig {
 	pinned_models?: string[];
 	default_model_id?: string;
 	forward_params_to_external: boolean;
+	web_search_enabled?: boolean;
+	ollama_api_key?: string;
 	summary_model_id?: string;
 	ocr_model_id?: string;
 }
@@ -83,6 +85,7 @@ export interface SSEToken {
 	content?: string;
 	reasoning?: string;
 	thinking_duration?: number;
+	tool_status?: string;
 	conversation_id?: string;
 	queue_id?: string;
 	position?: number;

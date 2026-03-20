@@ -13,6 +13,7 @@ let isStreaming = $state(false);
 let streamingContent = $state('');
 let streamingReasoning = $state('');
 let thinkingDuration = $state<number | null>(null);
+let toolStatus = $state<string | null>(null); // "searching", "fetching"
 let streamAbortController: AbortController | null = null;
 let answerNowRequested = false;
 let lastSentContent = '';
@@ -122,6 +123,9 @@ export function getStreamingReasoning() {
 }
 export function getThinkingDuration() {
 	return thinkingDuration;
+}
+export function getToolStatus() {
+	return toolStatus;
 }
 export function getModels() {
 	return models;
@@ -946,9 +950,13 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 			if (token.thinking_duration !== undefined) {
 				thinkingDuration = token.thinking_duration;
 			}
+			if (token.tool_status) {
+				toolStatus = token.tool_status;
+			}
 			if (token.content) {
 				// Once we receive content, we're no longer queued
 				queuePosition = null;
+				toolStatus = null;
 				streamingContent += token.content;
 			}
 			if (token.usage) {
@@ -1016,6 +1024,7 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 		streamingContent = '';
 		streamingReasoning = '';
 		thinkingDuration = null;
+		toolStatus = null;
 		streamAbortController = null;
 		queuePosition = null;
 		queueItemId = null;

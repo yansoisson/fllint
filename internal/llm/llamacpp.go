@@ -454,6 +454,11 @@ func (e *LlamaCppEngine) ChatStream(ctx context.Context, messages []ChatMessage)
 		req.ChatTemplateKwargs = map[string]any{"enable_thinking": true}
 	}
 
+	// Add tools if provided via context
+	if toolDefs, ok := ctx.Value(ToolsKey).([]interface{}); ok && len(toolDefs) > 0 {
+		req.Tools = toolDefs
+	}
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode request: %w", err)
@@ -528,8 +533,10 @@ func (e *LlamaCppEngine) ContextSize() int {
 // --- OpenAI-compatible request types ---
 
 type oaiMessage struct {
-	Role    string      `json:"role"`
-	Content interface{} `json:"content"` // string or []oaiContentPart
+	Role       string              `json:"role"`
+	Content    interface{}         `json:"content"`                // string or []oaiContentPart
+	ToolCalls  []oaiToolCallChunk  `json:"tool_calls,omitempty"`   // for assistant messages with tool calls
+	ToolCallID string              `json:"tool_call_id,omitempty"` // for tool result messages
 }
 
 type oaiStreamOptions struct {
@@ -548,6 +555,16 @@ type oaiRequest struct {
 	MaxTokens          int               `json:"max_tokens,omitempty"`
 	Seed               int               `json:"seed,omitempty"`
 	ChatTemplateKwargs map[string]any    `json:"chat_template_kwargs,omitempty"`
+	Tools              []interface{}     `json:"tools,omitempty"`
+}
+
+type oaiToolCallChunk struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id,omitempty"`
+	Function struct {
+		Name      string `json:"name,omitempty"`
+		Arguments string `json:"arguments,omitempty"`
+	} `json:"function"`
 }
 
 type oaiContentPart struct {

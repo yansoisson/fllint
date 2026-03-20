@@ -15,6 +15,7 @@ import (
 	"github.com/fllint/fllint/internal/llm"
 	"github.com/fllint/fllint/internal/prompt"
 	"github.com/fllint/fllint/internal/queue"
+	"github.com/fllint/fllint/internal/tools"
 )
 
 // TitleGenerator generates conversation titles asynchronously.
@@ -260,6 +261,13 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		ctx = context.WithValue(ctx, llm.NoReasoningKey, true)
 	}
 
+	// Add web search tools if enabled and API key is configured
+	var webSearchAPIKey string
+	if cfg != nil && cfg.WebSearchEnabled && cfg.OllamaAPIKey != "" {
+		ctx = context.WithValue(ctx, llm.ToolsKey, tools.ToolDefinitions())
+		webSearchAPIKey = cfg.OllamaAPIKey
+	}
+
 	item, position := h.queue.Enqueue(ctx, modelID, engineMessages)
 
 	flusher, ok := w.(http.Flusher)
@@ -286,12 +294,15 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 
 	// marshalToken builds the SSE JSON for a content/reasoning token.
 	marshalToken := func(token llm.Token) []byte {
-		event := map[string]string{}
+		event := map[string]interface{}{}
 		if token.Content != "" {
 			event["content"] = token.Content
 		}
 		if token.Reasoning != "" {
 			event["reasoning"] = token.Reasoning
+		}
+		if token.ToolStatus != "" {
+			event["tool_status"] = token.ToolStatus
 		}
 		data, _ := json.Marshal(event)
 		return data
@@ -305,6 +316,16 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	var thinkingDuration *int
 	var promptTokens, completionTokens int
 	var finishReason string
+	var collectedToolCalls []llm.ToolCall
+
+	// collectToken wraps processToken and also collects tool calls.
+	collectToken := func(token llm.Token) bool {
+		if len(token.ToolCalls) > 0 {
+			collectedToolCalls = append(collectedToolCalls, token.ToolCalls...)
+		}
+		return processToken(token, &promptTokens, &completionTokens, &finishReason,
+			&fullResponse, &fullReasoning, &thinkingStart, &thinkingDuration)
+	}
 
 	if position > 0 {
 		// Send periodic position updates while waiting in the queue.
@@ -323,8 +344,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 					// TokenCh closed \u2014 should not happen before DoneCh
 					break waitLoop
 				}
-				if !processToken(token, &promptTokens, &completionTokens, &finishReason,
-					&fullResponse, &fullReasoning, &thinkingStart, &thinkingDuration) {
+				if !collectToken(token) {
 					continue
 				}
 				fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
@@ -365,8 +385,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				goto done
 			}
-			if !processToken(token, &promptTokens, &completionTokens, &finishReason,
-				&fullResponse, &fullReasoning, &thinkingStart, &thinkingDuration) {
+			if !collectToken(token) {
 				continue
 			}
 			fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
@@ -379,8 +398,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		case <-item.DoneCh:
 			// Drain any remaining tokens in the channel.
 			for token := range item.TokenCh {
-				if processToken(token, &promptTokens, &completionTokens, &finishReason,
-					&fullResponse, &fullReasoning, &thinkingStart, &thinkingDuration) {
+				if collectToken(token) {
 					fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
 					flusher.Flush()
 				}
@@ -390,6 +408,82 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 done:
+	// Tool-calling loop: if the model requested tool calls, execute them
+	// and re-send the conversation with results. Max 5 iterations.
+	if len(collectedToolCalls) > 0 && webSearchAPIKey != "" {
+		for toolIter := 0; toolIter < 5 && len(collectedToolCalls) > 0; toolIter++ {
+			// Append the assistant message with tool calls
+			assistantMsg := llm.ChatMessage{
+				Role:      "assistant",
+				Content:   fullResponse,
+				ToolCalls: collectedToolCalls,
+			}
+			engineMessages = append(engineMessages, assistantMsg)
+
+			// Execute each tool call and append results
+			for _, tc := range collectedToolCalls {
+				// Send status to frontend
+				statusName := "searching"
+				if tc.Name == "web_fetch" {
+					statusName = "fetching"
+				}
+				statusData, _ := json.Marshal(map[string]string{"tool_status": statusName})
+				fmt.Fprintf(w, "data: %s\n\n", statusData)
+				flusher.Flush()
+
+				result, err := tools.ExecuteToolCall(ctx, webSearchAPIKey, tc.Name, tc.Arguments)
+				if err != nil {
+					result = fmt.Sprintf("Error: %s", err.Error())
+				}
+
+				engineMessages = append(engineMessages, llm.ChatMessage{
+					Role:       "tool",
+					Content:    result,
+					ToolCallID: tc.ID,
+				})
+			}
+
+			// Reset for next iteration
+			collectedToolCalls = nil
+			fullResponse = ""
+			fullReasoning = ""
+
+			// Re-enqueue with updated messages
+			item2, _ := h.queue.Enqueue(ctx, modelID, engineMessages)
+
+			// Stream the new response
+			for {
+				select {
+				case <-ctx.Done():
+					h.queue.Cancel(item2.ID)
+					goto toolsDone
+				case token, ok := <-item2.TokenCh:
+					if !ok {
+						goto toolsDone
+					}
+					if collectToken(token) {
+						fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
+						flusher.Flush()
+					}
+				case err := <-item2.ErrCh:
+					data, _ := json.Marshal(map[string]string{"error": err.Error()})
+					fmt.Fprintf(w, "data: %s\n\n", data)
+					flusher.Flush()
+					goto toolsDone
+				case <-item2.DoneCh:
+					for token := range item2.TokenCh {
+						if collectToken(token) {
+							fmt.Fprintf(w, "data: %s\n\n", marshalToken(token))
+							flusher.Flush()
+						}
+					}
+					goto toolsDone
+				}
+			}
+		toolsDone:
+		}
+	}
+
 	// Send thinking duration if we tracked it
 	if thinkingDuration != nil {
 		data, _ := json.Marshal(map[string]interface{}{"thinking_duration": *thinkingDuration})

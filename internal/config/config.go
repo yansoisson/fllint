@@ -44,6 +44,10 @@ type Config struct {
 	// External Models
 	ForwardParamsToExternal bool `json:"forward_params_to_external"` // send inference params to external providers
 
+	// Tools
+	WebSearchEnabled bool   `json:"web_search_enabled"`          // enable web search tool for models
+	OllamaAPIKey     string `json:"ollama_api_key,omitempty"`    // API key for Ollama web search/fetch
+
 	// Helper Models
 	SummaryModelID string `json:"summary_model_id,omitempty"` // model for generating conversation titles
 	OCRModelID     string `json:"ocr_model_id,omitempty"`     // model for OCR text extraction from PDFs

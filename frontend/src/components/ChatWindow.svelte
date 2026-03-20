@@ -6,6 +6,7 @@
 		getStreamingContent,
 		getStreamingReasoning,
 		getThinkingDuration,
+		getToolStatus,
 		getEngineStatus,
 		getModels,
 		getChatError,
@@ -56,6 +57,13 @@
 	{#each getMessages() as message}
 		<MessageBubble {message} />
 	{/each}
+
+	{#if getIsStreaming() && getToolStatus()}
+		<div class="tool-status">
+			<span class="tool-spinner"></span>
+			{getToolStatus() === 'fetching' ? 'Fetching web page...' : 'Searching the web...'}
+		</div>
+	{/if}
 
 	{#if getIsStreaming() && (getStreamingContent() || getStreamingReasoning())}
 		<MessageBubble message={{
@@ -148,6 +156,29 @@
 		padding: 24px max(24px, calc((100% - var(--content-max-width)) / 2));
 		display: flex;
 		flex-direction: column;
+	}
+
+	.tool-status {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 0;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		font-style: italic;
+	}
+
+	.tool-spinner {
+		width: 14px;
+		height: 14px;
+		border: 2px solid var(--border);
+		border-top-color: var(--accent);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
 	}
 
 	.chat-window.has-messages {

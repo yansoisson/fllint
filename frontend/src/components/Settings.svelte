@@ -868,6 +868,67 @@
 							</div>
 						</section>
 
+						<!-- ==================== WEB SEARCH ==================== -->
+						<section class="section">
+							<h4 class="section-title">Web Search</h4>
+							<p class="field-desc">
+								Allow models to search the web for current information. Uses the Ollama Web Search API.
+							</p>
+
+							<div class="field">
+								<div class="toggle-row">
+									<div>
+										<span class="field-label">Enable Web Search</span>
+										<p class="field-desc">Models can decide to search the web when answering questions about current events or facts.</p>
+									</div>
+									<button
+										class="toggle"
+										class:on={config.web_search_enabled}
+										onclick={() => {
+											if (!config) return;
+											config.web_search_enabled = !config.web_search_enabled;
+											api.updateConfig(config).then((c) => { config = c; syncConfig(c); });
+										}}
+										role="switch"
+										aria-checked={config.web_search_enabled}
+										aria-label="Toggle Web Search"
+									>
+										<span class="toggle-knob"></span>
+									</button>
+								</div>
+							</div>
+
+							{#if config.web_search_enabled}
+								<div class="field">
+									<label class="field-label" for="ollama-api-key">Ollama API Key</label>
+									<p class="field-desc">
+										Required for web search. Get a free key at <a href="https://ollama.com/settings/keys" target="_blank" rel="noopener">ollama.com/settings/keys</a>.
+										{#if !config.ollama_api_key}
+											{@const ollamaCloud = allProviders.find(p => p.type === 'ollama-cloud' && p.has_api_key)}
+											{#if ollamaCloud}
+												Uses the same key as your "{ollamaCloud.name}" provider.
+											{/if}
+										{/if}
+									</p>
+									<input
+										id="ollama-api-key"
+										type="password"
+										class="input"
+										value={config.ollama_api_key || ''}
+										oninput={(e) => {
+											if (!config) return;
+											config.ollama_api_key = e.currentTarget.value;
+										}}
+										onblur={() => {
+											if (!config) return;
+											api.updateConfig(config).then((c) => { config = c; syncConfig(c); });
+										}}
+										placeholder="Enter Ollama API key..."
+									/>
+								</div>
+							{/if}
+						</section>
+
 						<!-- ==================== PRO MODE ==================== -->
 						<section class="section">
 							<div class="field">

@@ -21,6 +21,14 @@ func parseOpenAISSE(ctx context.Context, body io.ReadCloser, ch chan<- Token) {
 
 	var lastFinishReason string
 
+	// Accumulate tool calls across chunks (they arrive incrementally)
+	type toolCallAccum struct {
+		ID       string
+		Name     string
+		ArgsBuilder strings.Builder
+	}
+	var toolCallAccums []toolCallAccum
+
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -31,16 +39,31 @@ func parseOpenAISSE(ctx context.Context, body io.ReadCloser, ch chan<- Token) {
 		data = strings.TrimSpace(data)
 
 		if data == "[DONE]" {
+			// Emit accumulated tool calls if any
+			if len(toolCallAccums) > 0 {
+				var calls []ToolCall
+				for _, tc := range toolCallAccums {
+					calls = append(calls, ToolCall{
+						ID:        tc.ID,
+						Name:      tc.Name,
+						Arguments: tc.ArgsBuilder.String(),
+					})
+				}
+				select {
+				case ch <- Token{ToolCalls: calls, FinishReason: lastFinishReason}:
+				case <-ctx.Done():
+				}
+			}
 			return
 		}
-
 
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content          string `json:"content"`
-					ReasoningContent string `json:"reasoning_content"` // llama-server format
-					Reasoning        string `json:"reasoning"`         // Ollama format
+					Content          string             `json:"content"`
+					ReasoningContent string             `json:"reasoning_content"` // llama-server format
+					Reasoning        string             `json:"reasoning"`         // Ollama format
+					ToolCalls        []oaiToolCallChunk  `json:"tool_calls,omitempty"`
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
@@ -61,10 +84,23 @@ func parseOpenAISSE(ctx context.Context, body io.ReadCloser, ch chan<- Token) {
 
 		// Usage info from the final chunk (when stream_options.include_usage is true)
 		if chunk.Usage != nil {
+			// Emit accumulated tool calls along with usage
+			var calls []ToolCall
+			if len(toolCallAccums) > 0 {
+				for _, tc := range toolCallAccums {
+					calls = append(calls, ToolCall{
+						ID:        tc.ID,
+						Name:      tc.Name,
+						Arguments: tc.ArgsBuilder.String(),
+					})
+				}
+				toolCallAccums = nil
+			}
 			tok := Token{
 				PromptTokens:     chunk.Usage.PromptTokens,
 				CompletionTokens: chunk.Usage.CompletionTokens,
 				FinishReason:     lastFinishReason,
+				ToolCalls:        calls,
 			}
 			select {
 			case <-ctx.Done():
@@ -76,6 +112,22 @@ func parseOpenAISSE(ctx context.Context, body io.ReadCloser, ch chan<- Token) {
 
 		if len(chunk.Choices) == 0 {
 			continue
+		}
+
+		// Accumulate tool call chunks (they arrive incrementally)
+		for _, tc := range chunk.Choices[0].Delta.ToolCalls {
+			for tc.Index >= len(toolCallAccums) {
+				toolCallAccums = append(toolCallAccums, toolCallAccum{})
+			}
+			if tc.ID != "" {
+				toolCallAccums[tc.Index].ID = tc.ID
+			}
+			if tc.Function.Name != "" {
+				toolCallAccums[tc.Index].Name = tc.Function.Name
+			}
+			if tc.Function.Arguments != "" {
+				toolCallAccums[tc.Index].ArgsBuilder.WriteString(tc.Function.Arguments)
+			}
 		}
 
 		content := chunk.Choices[0].Delta.Content
@@ -92,6 +144,22 @@ func parseOpenAISSE(ctx context.Context, body io.ReadCloser, ch chan<- Token) {
 		case <-ctx.Done():
 			return
 		case ch <- Token{Content: content, Reasoning: reasoning}:
+		}
+	}
+
+	// If stream ended without [DONE], still emit accumulated tool calls
+	if len(toolCallAccums) > 0 {
+		var calls []ToolCall
+		for _, tc := range toolCallAccums {
+			calls = append(calls, ToolCall{
+				ID:        tc.ID,
+				Name:      tc.Name,
+				Arguments: tc.ArgsBuilder.String(),
+			})
+		}
+		select {
+		case ch <- Token{ToolCalls: calls, FinishReason: lastFinishReason}:
+		case <-ctx.Done():
 		}
 	}
 
