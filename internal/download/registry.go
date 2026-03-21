@@ -23,13 +23,14 @@ type RegistryModel struct {
 
 // RegistryEntry is a RegistryModel enriched with download status.
 type RegistryEntry struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"display_name"`
-	Category    string `json:"category"`
-	Tier        string `json:"tier"`
-	Size        int64  `json:"size"`
-	Downloaded  bool   `json:"downloaded"`
-	MmprojSize  int64  `json:"mmproj_size,omitempty"`
+	ID            string `json:"id"`
+	DisplayName   string `json:"display_name"`
+	Category      string `json:"category"`
+	Tier          string `json:"tier"`
+	Size          int64  `json:"size"`
+	Downloaded    bool   `json:"downloaded"`
+	MmprojMissing bool   `json:"mmproj_missing,omitempty"`
+	MmprojSize    int64  `json:"mmproj_size,omitempty"`
 }
 
 // Registry returns the list of official downloadable models.
@@ -124,6 +125,9 @@ func CheckDownloaded(modelsDir string, models []RegistryModel) []RegistryEntry {
 			MmprojSize:  m.MmprojSize,
 		}
 		entry.Downloaded = isDownloaded(modelsDir, m)
+		if !entry.Downloaded {
+			entry.MmprojMissing = isMmprojMissing(modelsDir, m)
+		}
 		entries = append(entries, entry)
 	}
 	return entries
@@ -139,12 +143,83 @@ func isDownloaded(modelsDir string, model RegistryModel) bool {
 	// Accept if file exists and is within 1% of expected size (different quantization builds
 	// may vary slightly). If expected size is 0, just check existence.
 	if model.Size == 0 {
-		return info.Size() > 0
+		if info.Size() <= 0 {
+			return false
+		}
+	} else {
+		tolerance := model.Size / 100
+		diff := info.Size() - model.Size
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > tolerance {
+			return false
+		}
 	}
-	tolerance := model.Size / 100
-	diff := info.Size() - model.Size
-	if diff < 0 {
-		diff = -diff
+
+	// Check that no .partial files remain (interrupted download)
+	if _, err := os.Stat(path + ".partial"); err == nil {
+		return false
 	}
-	return diff <= tolerance
+
+	// Check mmproj if the model requires one
+	if model.MmprojName != "" {
+		mmprojPath := filepath.Join(modelsDir, model.DirName, model.MmprojName)
+		mmprojInfo, err := os.Stat(mmprojPath)
+		if err != nil {
+			return false
+		}
+		if model.MmprojSize > 0 {
+			tolerance := model.MmprojSize / 100
+			diff := mmprojInfo.Size() - model.MmprojSize
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff > tolerance {
+				return false
+			}
+		}
+		// Check no .partial leftover for mmproj
+		if _, err := os.Stat(mmprojPath + ".partial"); err == nil {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isMmprojMissing checks if the main model is downloaded but mmproj is missing or incomplete.
+func isMmprojMissing(modelsDir string, model RegistryModel) bool {
+	if model.MmprojName == "" {
+		return false
+	}
+
+	// Main model must exist
+	path := filepath.Join(modelsDir, model.DirName, model.Filename)
+	info, err := os.Stat(path)
+	if err != nil || info.Size() == 0 {
+		return false
+	}
+
+	// Check mmproj
+	mmprojPath := filepath.Join(modelsDir, model.DirName, model.MmprojName)
+	mmprojInfo, err := os.Stat(mmprojPath)
+	if err != nil {
+		return true // mmproj file doesn't exist
+	}
+	if model.MmprojSize > 0 {
+		tolerance := model.MmprojSize / 100
+		diff := mmprojInfo.Size() - model.MmprojSize
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > tolerance {
+			return true // mmproj wrong size
+		}
+	}
+	// Check for .partial
+	if _, err := os.Stat(mmprojPath + ".partial"); err == nil {
+		return true
+	}
+	return false
 }

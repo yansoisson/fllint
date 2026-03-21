@@ -873,6 +873,27 @@ export async function sendMessage(content: string, opts?: { noReasoning?: boolea
 				const uploads = await Promise.all(
 					pendingDocuments.map((doc) => api.uploadDocument(doc.file))
 				);
+
+				// Check for PDFs with no extractable text and no OCR text
+				for (let i = 0; i < uploads.length; i++) {
+					const result = uploads[i];
+					const doc = pendingDocuments[i];
+					const isPdf = doc?.name?.toLowerCase().endsWith('.pdf');
+					const hasOcr = !!doc?.ocrText;
+					const hasText = !!result.extracted_text;
+
+					if (isPdf && !hasText && !hasOcr) {
+						// PDF has no extractable text and no OCR — prompt user
+						showNotification('This PDF contains no extractable text. Use OCR to extract text first.');
+						// Auto-open OCR popup for this document
+						if (ocrEnabled) {
+							openOcrPopup(i);
+						}
+						sendFailed = 'pre-stream';
+						return;
+					}
+				}
+
 				documentAttachments = uploads.map((result, i) => ({
 					filename: result.original_name,
 					url: result.url,

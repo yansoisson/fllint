@@ -147,8 +147,8 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 			writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid document URL: contains invalid characters.")
 			return
 		}
-		if doc.Filename == "" || doc.Text == "" {
-			writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Document filename and text are required.")
+		if doc.Filename == "" {
+			writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Document filename is required.")
 			return
 		}
 	}
@@ -252,7 +252,25 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Warning: could not read system prompt file: %v", err)
 		systemPrompt = prompt.DefaultSystemPrompt
 	}
-	systemContent := prompt.Build(systemPrompt, cfg.CustomInstructions)
+
+	// Resolve web search API key early (needed for both prompt context and tool injection)
+	var webSearchAPIKey string
+	webSearchEnabled := false
+	if cfg != nil && cfg.WebSearchEnabled {
+		key := cfg.OllamaAPIKey
+		if key == "" && h.webSearchKeyFn != nil {
+			key = h.webSearchKeyFn()
+		}
+		if key != "" {
+			webSearchAPIKey = key
+			webSearchEnabled = true
+		}
+	}
+
+	systemContent := prompt.BuildWithContext(systemPrompt, cfg.CustomInstructions, prompt.PromptContext{
+		CurrentDateTime:  time.Now().Format("Monday, January 2, 2006 at 3:04 PM"),
+		WebSearchEnabled: webSearchEnabled,
+	})
 
 	var engineMessages []llm.ChatMessage
 	if systemContent != "" {
@@ -272,17 +290,8 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add web search tools if enabled
-	var webSearchAPIKey string
-	if cfg != nil && cfg.WebSearchEnabled {
-		// Try dedicated key first, then fall back to resolver (Ollama Cloud provider key)
-		key := cfg.OllamaAPIKey
-		if key == "" && h.webSearchKeyFn != nil {
-			key = h.webSearchKeyFn()
-		}
-		if key != "" {
-			ctx = context.WithValue(ctx, llm.ToolsKey, tools.ToolDefinitions())
-			webSearchAPIKey = key
-		}
+	if webSearchEnabled {
+		ctx = context.WithValue(ctx, llm.ToolsKey, tools.ToolDefinitions())
 	}
 
 	item, position := h.queue.Enqueue(ctx, modelID, engineMessages)

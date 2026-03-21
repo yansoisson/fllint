@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -161,7 +162,35 @@ func New(cfg *config.Config, frontendFS fs.FS, llmManager *llm.Manager, download
 		s.serveSPA(frontendFS)
 	}
 
+	// Background title backfill for conversations stuck with "New chat"
+	go func() {
+		time.Sleep(30 * time.Second)
+		adapter := &backfillAdapter{store: chatStore}
+		summaryService.BackfillTitles(adapter)
+	}()
+
 	return s, nil
+}
+
+// backfillAdapter wraps chat.Store to satisfy summary.ConversationLister.
+type backfillAdapter struct {
+	store *chat.Store
+}
+
+func (a *backfillAdapter) ListForBackfill() ([]summary.ConversationInfo, error) {
+	convs, err := a.store.ListSummaries()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]summary.ConversationInfo, len(convs))
+	for i, c := range convs {
+		result[i] = summary.ConversationInfo{
+			ID:       c.ID,
+			Title:    c.Title,
+			Messages: c.Messages,
+		}
+	}
+	return result, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

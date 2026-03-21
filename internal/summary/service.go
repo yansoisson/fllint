@@ -39,6 +39,18 @@ func NewService(store TitleUpdater, manager *llm.Manager, q *queue.Queue) *Servi
 	}
 }
 
+// ConversationInfo holds the minimal info needed for title backfill.
+type ConversationInfo struct {
+	ID       string
+	Title    string
+	Messages []llm.ChatMessage
+}
+
+// ConversationLister lists conversations for background title backfill.
+type ConversationLister interface {
+	ListForBackfill() ([]ConversationInfo, error)
+}
+
 // GenerateTitle asynchronously generates a title for a conversation.
 // It uses userContent if non-empty, otherwise falls back to assistantResponse.
 // This method is meant to be called in a goroutine.
@@ -89,16 +101,26 @@ func (s *Service) GenerateTitle(convID, userContent, assistantResponse string) {
 	var title string
 	var err error
 
-	if llm.IsExternalModel(modelID) {
-		// External models bypass the queue — no local resource contention
-		title, err = s.generateExternal(modelID, messages)
-	} else {
-		// Local models go through the priority queue
-		title, err = s.generateLocal(modelID, messages)
+	// Retry up to 3 times with backoff
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*2) * time.Second)
+		}
+		if llm.IsExternalModel(modelID) {
+			title, err = s.generateExternal(modelID, messages)
+		} else {
+			title, err = s.generateLocal(modelID, messages)
+		}
+		if err == nil && strings.TrimSpace(title) != "" {
+			break
+		}
+		if err != nil {
+			log.Printf("Summary: attempt %d/3 failed for conv %s: %v", attempt+1, convID, err)
+		}
 	}
 
-	if err != nil {
-		log.Printf("Summary: title generation failed for conv %s: %v", convID, err)
+	if err != nil || strings.TrimSpace(title) == "" {
+		log.Printf("Summary: title generation failed for conv %s after 3 attempts", convID)
 		// Fall back to truncation
 		title = text
 		if len(title) > 50 {
@@ -113,6 +135,53 @@ func (s *Service) GenerateTitle(convID, userContent, assistantResponse string) {
 
 	if err := s.store.UpdateTitle(convID, title); err != nil {
 		log.Printf("Summary: failed to update title for conv %s: %v", convID, err)
+	}
+}
+
+// BackfillTitles scans for conversations with "New chat" title and generates titles
+// for them in the background. Should be called after startup when models are available.
+func (s *Service) BackfillTitles(lister ConversationLister) {
+	convs, err := lister.ListForBackfill()
+	if err != nil {
+		log.Printf("Summary: could not list conversations for backfill: %v", err)
+		return
+	}
+
+	count := 0
+	for _, conv := range convs {
+		if conv.Title != "New chat" || len(conv.Messages) == 0 {
+			continue
+		}
+
+		// Extract user and assistant content from first exchange
+		var userContent, assistantContent string
+		for _, msg := range conv.Messages {
+			if msg.Role == "user" && userContent == "" {
+				userContent = msg.Content
+			}
+			if msg.Role == "assistant" && assistantContent == "" {
+				assistantContent = msg.Content
+			}
+		}
+		if userContent == "" && assistantContent == "" {
+			continue
+		}
+
+		log.Printf("Summary: backfilling title for conv %s", conv.ID)
+		s.GenerateTitle(conv.ID, userContent, assistantContent)
+
+		count++
+		if count >= 20 {
+			log.Printf("Summary: backfill capped at 20 conversations")
+			break
+		}
+
+		// Delay between backfills to avoid overwhelming the model
+		time.Sleep(2 * time.Second)
+	}
+
+	if count > 0 {
+		log.Printf("Summary: backfilled %d conversation titles", count)
 	}
 }
 

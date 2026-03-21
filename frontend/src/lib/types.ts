@@ -141,6 +141,7 @@ export interface RegistryModel {
 	tier: 'lite' | 'standard' | 'pro' | 'helper';
 	size: number;
 	downloaded: boolean;
+	mmproj_missing?: boolean;
 	mmproj_size?: number;
 }
 

@@ -109,6 +109,34 @@ func (s *Store) DeleteAll() (int, error) {
 	return count, nil
 }
 
+// ListSummaries returns minimal conversation data for title backfill.
+// Only returns conversations with "New chat" title to avoid unnecessary I/O.
+func (s *Store) ListSummaries() ([]Conversation, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []Conversation
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		id := e.Name()[:len(e.Name())-5]
+		c, err := s.load(id)
+		if err != nil {
+			continue
+		}
+		if c.Title == "New chat" && len(c.Messages) > 0 {
+			result = append(result, *c)
+		}
+	}
+	return result, nil
+}
+
 // Count returns the number of stored conversations.
 func (s *Store) Count() int {
 	s.mu.RLock()

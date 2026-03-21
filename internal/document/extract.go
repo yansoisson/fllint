@@ -68,7 +68,7 @@ func ExtractText(filePath string) (string, error) {
 	}
 
 	text = strings.TrimSpace(text)
-	if text == "" {
+	if text == "" && category != "pdf" {
 		return "", fmt.Errorf("No text could be extracted from this file.")
 	}
 

@@ -1109,6 +1109,9 @@
 															<polyline points="20 6 9 17 4 12" />
 														</svg>
 													</span>
+												{:else if model.mmproj_missing}
+													<span class="error-text-small" title="Vision component missing">Incomplete</span>
+													<button class="small-btn" onclick={() => handleStartDownload(model.id)}>Repair</button>
 												{:else if dl?.state === 'downloading'}
 													<div class="download-progress-row">
 														<div class="progress-bar">
@@ -1591,7 +1594,7 @@
 										</p>
 
 										{@const ocrReg = registryModels.find(m => m.id === 'helper-ocr-glm-ocr')}
-										{#if ocrReg && !ocrReg.downloaded}
+										{#if ocrReg && (!ocrReg.downloaded || ocrReg.mmproj_missing)}
 											{@const dl = findActiveDownload(ocrReg.id)}
 											<div class="download-list" style="margin-bottom: 12px;">
 												<div class="download-card">
@@ -1604,7 +1607,10 @@
 														</div>
 													</div>
 													<div class="download-action">
-														{#if dl?.state === 'downloading'}
+														{#if ocrReg.mmproj_missing && !dl}
+															<span class="error-text-small" title="Vision component missing">Incomplete</span>
+															<button class="small-btn" onclick={() => handleStartDownload(ocrReg.id)}>Repair</button>
+														{:else if dl?.state === 'downloading'}
 															<div class="download-progress-row">
 																<div class="progress-bar">
 																	<div class="progress-fill" style="width: {progressPercent(dl)}%"></div>

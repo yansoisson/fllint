@@ -132,8 +132,8 @@ func (m *Manager) Start(registryID string) (*DownloadInfo, error) {
 		}
 	}
 
-	// Check if already downloaded
-	if isDownloaded(m.modelsDir, *model) {
+	// Check if already downloaded (allow re-download if mmproj is missing)
+	if isDownloaded(m.modelsDir, *model) && !isMmprojMissing(m.modelsDir, *model) {
 		return nil, fmt.Errorf("%s is already downloaded.", model.DisplayName)
 	}
 
@@ -329,33 +329,44 @@ func (m *Manager) processDownload(dl *Download) {
 		return
 	}
 
-	// Download main GGUF file
+	// Download main GGUF file (skip if already complete)
 	destPath := filepath.Join(dl.DestDir, dl.Filename)
-	if err := m.downloadFile(ctx, dl, dl.URL, destPath); err != nil {
-		if ctx.Err() != nil {
-			dl.State = StateCancelled
-			log.Printf("Download: cancelled %s", dl.DisplayName)
-		} else {
-			dl.State = StateError
-			dl.Error = friendlyDownloadError(err)
-			log.Printf("Download: error downloading %s: %v", dl.DisplayName, err)
-		}
-		return
-	}
-
-	// Download mmproj if needed
-	if dl.mmprojURL != "" && dl.mmprojName != "" {
-		mmprojPath := filepath.Join(dl.DestDir, dl.mmprojName)
-		if err := m.downloadFile(ctx, dl, dl.mmprojURL, mmprojPath); err != nil {
+	if info, err := os.Stat(destPath); err == nil && info.Size() > 0 {
+		// Main file already exists — skip download, update progress
+		log.Printf("Download: %s already exists, skipping", dl.Filename)
+		dl.doneBytes.Add(info.Size())
+	} else {
+		if err := m.downloadFile(ctx, dl, dl.URL, destPath); err != nil {
 			if ctx.Err() != nil {
 				dl.State = StateCancelled
-				log.Printf("Download: cancelled %s (mmproj)", dl.DisplayName)
+				log.Printf("Download: cancelled %s", dl.DisplayName)
 			} else {
 				dl.State = StateError
 				dl.Error = friendlyDownloadError(err)
-				log.Printf("Download: error downloading mmproj for %s: %v", dl.DisplayName, err)
+				log.Printf("Download: error downloading %s: %v", dl.DisplayName, err)
 			}
 			return
+		}
+	}
+
+	// Download mmproj if needed (skip if already complete)
+	if dl.mmprojURL != "" && dl.mmprojName != "" {
+		mmprojPath := filepath.Join(dl.DestDir, dl.mmprojName)
+		if info, err := os.Stat(mmprojPath); err == nil && info.Size() > 0 {
+			log.Printf("Download: %s already exists, skipping", dl.mmprojName)
+			dl.doneBytes.Add(info.Size())
+		} else {
+			if err := m.downloadFile(ctx, dl, dl.mmprojURL, mmprojPath); err != nil {
+				if ctx.Err() != nil {
+					dl.State = StateCancelled
+					log.Printf("Download: cancelled %s (mmproj)", dl.DisplayName)
+				} else {
+					dl.State = StateError
+					dl.Error = friendlyDownloadError(err)
+					log.Printf("Download: error downloading mmproj for %s: %v", dl.DisplayName, err)
+				}
+				return
+			}
 		}
 	}
 
@@ -471,10 +482,6 @@ func (m *Manager) writeModelMeta(dir string, displayName string) {
 		return
 	}
 	metaPath := filepath.Join(dir, "model.json")
-	// Don't overwrite existing model.json
-	if _, err := os.Stat(metaPath); err == nil {
-		return
-	}
 	if err := os.WriteFile(metaPath, append(data, '\n'), 0644); err != nil {
 		log.Printf("Download: could not write model.json: %v", err)
 	}
