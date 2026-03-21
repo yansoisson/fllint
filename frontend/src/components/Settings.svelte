@@ -1109,7 +1109,7 @@
 															<polyline points="20 6 9 17 4 12" />
 														</svg>
 													</span>
-												{:else if model.mmproj_missing}
+												{:else if model.mmproj_missing && !dl}
 													<span class="error-text-small" title="Vision component missing">Incomplete</span>
 													<button class="small-btn" onclick={() => handleStartDownload(model.id)}>Repair</button>
 												{:else if dl?.state === 'downloading'}

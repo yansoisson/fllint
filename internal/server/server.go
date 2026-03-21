@@ -364,7 +364,7 @@ func (s *Server) getSystemPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 	respondJSON(w, http.StatusOK, map[string]any{
 		"prompt":     content,
-		"is_default": content == prompt.DefaultSystemPrompt,
+		"is_default": prompt.IsDefault(content),
 	})
 }
 
@@ -382,7 +382,7 @@ func (s *Server) updateSystemPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 	respondJSON(w, http.StatusOK, map[string]any{
 		"prompt":     req.Prompt,
-		"is_default": req.Prompt == prompt.DefaultSystemPrompt,
+		"is_default": prompt.IsDefault(req.Prompt),
 	})
 }
 

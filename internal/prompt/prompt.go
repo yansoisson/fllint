@@ -25,6 +25,29 @@ var DefaultSystemPrompt = strings.TrimSpace(defaultSystemPromptRaw)
 // that generates conversation titles.
 var DefaultSummaryPrompt = strings.TrimSpace(defaultSummaryPromptRaw)
 
+// previousDefaults lists all previous versions of the default system prompt.
+// When a user's saved prompt matches one of these, it is treated as "not customized"
+// and automatically upgraded to the current default.
+var previousDefaults = []string{
+	// v0.1.0 – v0.6.2
+	"You are Fllint, a helpful, accurate, and concise AI assistant running entirely on the user's local machine. No data leaves this device. Be direct and clear in your responses. When you don't know something, say so. Format responses with markdown when it improves readability.",
+}
+
+// IsDefault returns true if the given prompt matches the current default
+// or any known previous default.
+func IsDefault(content string) bool {
+	content = strings.TrimSpace(content)
+	if content == DefaultSystemPrompt {
+		return true
+	}
+	for _, prev := range previousDefaults {
+		if content == prev {
+			return true
+		}
+	}
+	return false
+}
+
 // Build composes the final system prompt from the configured system prompt
 // and optional custom instructions.
 //

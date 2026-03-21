@@ -19,6 +19,7 @@ func FilePath(dataDir string) string {
 
 // ReadFromFile reads the system prompt from the data directory.
 // If the file does not exist, it returns the embedded DefaultSystemPrompt.
+// If the file contains an old default prompt, it auto-upgrades to the current default.
 func ReadFromFile(dataDir string) (string, error) {
 	path := FilePath(dataDir)
 	data, err := os.ReadFile(path)
@@ -28,7 +29,16 @@ func ReadFromFile(dataDir string) (string, error) {
 		}
 		return "", err
 	}
-	return strings.TrimSpace(string(data)), nil
+	content := strings.TrimSpace(string(data))
+
+	// Auto-upgrade: if the saved prompt matches a previous default,
+	// return the current default and update the file on disk.
+	if content != DefaultSystemPrompt && IsDefault(content) {
+		_ = WriteToFile(dataDir, DefaultSystemPrompt)
+		return DefaultSystemPrompt, nil
+	}
+
+	return content, nil
 }
 
 // WriteToFile writes the system prompt to the data directory.
