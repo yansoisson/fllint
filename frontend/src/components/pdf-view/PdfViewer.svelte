@@ -71,11 +71,12 @@
 		return () => { cancelled = true; };
 	});
 
-	// Render visible pages when scale or doc changes
+	// Render visible pages when scale, doc, or page count changes
 	$effect(() => {
-		if (!pdfDoc || scale <= 0) return;
-		// Small delay to let DOM settle
-		const t = setTimeout(() => renderVisiblePages(), 50);
+		const count = getPdfPageCount();
+		if (!pdfDoc || scale <= 0 || count === 0) return;
+		// Small delay to let DOM settle after page divs are created
+		const t = setTimeout(() => renderVisiblePages(), 100);
 		return () => clearTimeout(t);
 	});
 

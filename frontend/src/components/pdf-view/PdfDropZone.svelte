@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { loadPdf, getIsProcessing } from '$lib/pdfViewStore.svelte';
+	import { loadPdf, getIsProcessing, getPdfChatError } from '$lib/pdfViewStore.svelte';
 
 	let isDragOver = $state(false);
 	let fileInput = $state<HTMLInputElement | null>(null);
@@ -57,6 +57,9 @@
 			<line x1="16" y1="17" x2="8" y2="17" />
 			<polyline points="10 9 9 9 8 9" />
 		</svg>
+		{#if getPdfChatError()}
+			<p class="error">{getPdfChatError()}</p>
+		{/if}
 		<p class="label">Drop a PDF here or click to select</p>
 		<button class="select-btn" onclick={openFilePicker}>Choose PDF</button>
 		<input
@@ -91,6 +94,14 @@
 
 	.icon {
 		color: var(--text-muted);
+	}
+
+	.error {
+		color: #e74c3c;
+		font-size: 0.85rem;
+		padding: 6px 12px;
+		background: rgba(231, 76, 60, 0.08);
+		border-radius: 6px;
 	}
 
 	.label {

@@ -1,5 +1,5 @@
 import * as api from './api';
-import { extractPageTexts } from './pdf';
+import { getPageCount, extractPageTexts } from './pdf';
 import { getEffectiveModelId, getModels, loadConversations } from './stores.svelte';
 import type { ChatMessage, DocumentAttachment } from './types';
 
@@ -61,23 +61,35 @@ export function getPdfChatError() { return pdfChatError; }
 export function getPdfQueuePosition() { return pdfQueuePosition; }
 export function getPdfToolStatus() { return pdfToolStatus; }
 
-// --- PDF loading ---
+// --- PDF loading (two-phase: page count first, then text extraction) ---
 export async function loadPdf(file: File) {
 	isProcessing = true;
 	pdfChatError = null;
-	pdfFile = file;
 	pdfFilename = file.name;
 
 	try {
-		const texts = await extractPageTexts(file);
-		pdfPageTexts = texts;
-		pdfPageCount = texts.length;
+		// Phase 1: Get page count (fast) — then show the viewer immediately
+		const count = await getPageCount(file);
+		pdfPageCount = count;
+		pdfFile = file;
 		currentPage = 1;
+		isProcessing = false;
+
+		// Phase 2: Extract text per page in background (non-blocking for UI)
+		try {
+			const texts = await extractPageTexts(file);
+			pdfPageTexts = texts;
+		} catch (textErr) {
+			console.warn('PDF text extraction failed, chat context will be empty:', textErr);
+			// Viewer still works — just no text context for chat
+			pdfPageTexts = Array(count).fill('');
+		}
 	} catch (err) {
-		pdfChatError = err instanceof Error ? err.message : 'Failed to extract PDF text.';
+		// Only reset if we can't even open the PDF
+		pdfChatError = err instanceof Error ? err.message : 'Failed to open PDF.';
 		pdfFile = null;
 		pdfFilename = '';
-	} finally {
+		pdfPageCount = 0;
 		isProcessing = false;
 	}
 }
