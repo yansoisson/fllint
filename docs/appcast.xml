@@ -423,5 +423,19 @@
     />
   </item>
 
+    <item>
+    <title>Version 0.7.0</title>
+    <pubDate>Tue, 24 Mar 2026 12:28:41 +0000</pubDate>
+    <sparkle:version>131</sparkle:version>
+    <sparkle:shortVersionString>0.7.0</sparkle:shortVersionString>
+    <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+    <enclosure
+      url="https://github.com/yansoisson/fllint/releases/download/v0.7.0/Fllint.zip"
+      type="application/octet-stream"
+      sparkle:edSignature="OeYgj4+PGKV/xWmj5oD0IhAWumgx8E5hZJ5RabPCSv3xGs7azoPVjVcbjY3BZPm0oGZCZJWM2H057m+sfpIpDg=="
+      length="15698288"
+    />
+  </item>
+
   </channel>
 </rss>
