@@ -75,6 +75,7 @@ type chatRequest struct {
 	ModelID        string               `json:"model_id,omitempty"`
 	NoReasoning    bool                 `json:"no_reasoning,omitempty"`
 	Retry          bool                 `json:"retry,omitempty"`
+	AppType        string               `json:"app_type,omitempty"`
 }
 
 // processToken extracts usage metadata from a token and returns true if
@@ -163,6 +164,10 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 			writeErrorJSON(w, http.StatusInternalServerError, "store_error",
 				"Failed to create conversation.")
 			return
+		}
+		if req.AppType != "" {
+			conv.AppType = req.AppType
+			_ = h.store.save(conv)
 		}
 	} else {
 		conv, err = h.store.Get(req.ConversationID)

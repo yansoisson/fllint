@@ -25,6 +25,7 @@ export interface Conversation {
 	id: string;
 	title: string;
 	model_id?: string;
+	app_type?: string;
 	messages: ChatMessage[];
 	created_at: string;
 	updated_at: string;

@@ -50,6 +50,24 @@ export async function renderPageToBlob(file: File, pageNum: number, scale: numbe
 }
 
 /**
+ * Extract text content from each page of a PDF using pdf.js text layer.
+ * Returns an array of strings, one per page (0-indexed: texts[0] = page 1).
+ */
+export async function extractPageTexts(file: File): Promise<string[]> {
+	const arrayBuffer = await file.arrayBuffer();
+	const pdf = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+	const texts: string[] = [];
+	for (let i = 1; i <= pdf.numPages; i++) {
+		const page = await pdf.getPage(i);
+		const content = await page.getTextContent();
+		const items = content.items as Array<{ str: string }>;
+		texts.push(items.map((item) => item.str).join(' '));
+	}
+	pdf.destroy();
+	return texts;
+}
+
+/**
  * Parse a page range string like "1-3, 5, 7-10" into an array of page numbers.
  * Returns sorted, unique page numbers within [1, maxPages].
  */

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { page } from '$app/stores';
+	import { APPS } from '$lib/apps';
 	import {
 		getConversations,
 		getActiveConversationId,
@@ -24,6 +26,13 @@
 			confirmTimeout = setTimeout(() => { confirmDeleteId = null; }, 3000);
 		}
 	}
+
+	function convHref(conv: { id: string; app_type?: string }): string {
+		if (conv.app_type === 'pdf-view') {
+			return `/apps/pdf-view?conv=${conv.id}`;
+		}
+		return `/chat/${conv.id}`;
+	}
 </script>
 
 <aside class="sidebar" class:open={getSidebarOpen()}>
@@ -36,13 +45,39 @@
 			</svg>
 		</button>
 	</div>
+
+	<div class="apps-section">
+		<span class="section-label">Apps</span>
+		{#each APPS as app}
+			<a
+				class="app-item"
+				class:active={$page.url.pathname.startsWith(app.route)}
+				href={app.route}
+			>
+				{#if app.icon === 'document'}
+					<svg class="app-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+						<polyline points="14 2 14 8 20 8" />
+						<line x1="16" y1="13" x2="8" y2="13" />
+						<line x1="16" y1="17" x2="8" y2="17" />
+						<polyline points="10 9 9 9 8 9" />
+					</svg>
+				{/if}
+				<span>{app.name}</span>
+			</a>
+		{/each}
+	</div>
+
 	<div class="list">
 		{#each getConversations() as conv}
 			<a
 				class="conv-item"
 				class:active={getActiveConversationId() === conv.id}
-				href="/chat/{conv.id}"
+				href={convHref(conv)}
 			>
+				{#if conv.app_type === 'pdf-view'}
+					<span class="pdf-badge">PDF</span>
+				{/if}
 				<span class="title">{conv.title}</span>
 				<button
 					class="delete"
@@ -108,10 +143,52 @@
 		color: var(--text-primary);
 	}
 
+	.apps-section {
+		padding: 4px 8px 0;
+	}
+
+	.section-label {
+		display: block;
+		padding: 4px 12px 6px;
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-muted);
+	}
+
+	.app-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 12px;
+		border-radius: var(--radius);
+		font-size: 0.875rem;
+		color: var(--text-primary);
+		text-decoration: none;
+		transition: background var(--transition);
+		cursor: pointer;
+	}
+
+	.app-item:hover {
+		background: var(--bg-hover);
+	}
+
+	.app-item.active {
+		background: var(--bg-tertiary);
+	}
+
+	.app-icon {
+		flex-shrink: 0;
+		color: var(--text-secondary);
+	}
+
 	.list {
 		flex: 1;
 		overflow-y: auto;
 		padding: 4px 8px;
+		border-top: 1px solid var(--border);
+		margin-top: 4px;
 	}
 
 	.conv-item {
@@ -135,6 +212,19 @@
 
 	.conv-item.active {
 		background: var(--bg-tertiary);
+	}
+
+	.pdf-badge {
+		flex-shrink: 0;
+		font-size: 0.6rem;
+		font-weight: 700;
+		padding: 1px 4px;
+		border-radius: 3px;
+		background: var(--bg-tertiary);
+		color: var(--text-secondary);
+		margin-right: 6px;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
 	}
 
 	.title {

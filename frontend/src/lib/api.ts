@@ -72,7 +72,7 @@ export async function* streamChat(
 	documents?: DocumentAttachment[],
 	modelId?: string,
 	signal?: AbortSignal,
-	opts?: { noReasoning?: boolean; retry?: boolean }
+	opts?: { noReasoning?: boolean; retry?: boolean; appType?: string }
 ): AsyncGenerator<SSEToken, void, undefined> {
 	const res = await fetch(`${BASE}/chat`, {
 		method: 'POST',
@@ -84,7 +84,8 @@ export async function* streamChat(
 			documents: documents?.length ? documents : undefined,
 			model_id: modelId || undefined,
 			no_reasoning: opts?.noReasoning || undefined,
-			retry: opts?.retry || undefined
+			retry: opts?.retry || undefined,
+			app_type: opts?.appType || undefined
 		}),
 		signal
 	});
