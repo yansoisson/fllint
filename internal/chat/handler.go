@@ -139,6 +139,14 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 
 	// Validate document attachments
 	for _, doc := range req.Documents {
+		if doc.Text != "" {
+			// Document has inline text (e.g. PDF View app) — no URL needed
+			if doc.Filename == "" {
+				writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Document filename is required.")
+				return
+			}
+			continue
+		}
 		if !strings.HasPrefix(doc.URL, "/api/uploads/") {
 			writeErrorJSON(w, http.StatusBadRequest, "bad_request", "Invalid document URL: must start with /api/uploads/")
 			return

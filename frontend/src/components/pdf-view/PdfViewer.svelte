@@ -1,5 +1,6 @@
 <script lang="ts">
 	import * as pdfjs from 'pdfjs-dist';
+	import { parsePageRange } from '$lib/pdf';
 	import {
 		getPdfFile,
 		getPdfPageCount,
@@ -14,7 +15,12 @@
 		getAnnotationData,
 		saveAnnotation,
 		clearAnnotation,
-		setCanvasRefs
+		setCanvasRefs,
+		startPdfOcr,
+		cancelPdfOcr,
+		getOcrInProgress,
+		getOcrProgress,
+		getIsOcrAvailable
 	} from '$lib/pdfViewStore.svelte';
 
 	let pdfDoc = $state<pdfjs.PDFDocumentProxy | null>(null);
@@ -28,6 +34,15 @@
 	let isMouseDown = false;
 
 	const PEN_COLORS = ['#ff0000', '#0066ff', '#00aa00', '#ffaa00', '#000000'];
+
+	// OCR popover
+	let showOcrPopover = $state(false);
+	let ocrPageInput = $state('all');
+
+	function handleOcrStart() {
+		startPdfOcr(ocrPageInput);
+		showOcrPopover = false;
+	}
 
 	// Svelte action to register page elements
 	function pageRef(node: HTMLDivElement, pageNum: number) {
@@ -323,6 +338,54 @@
 				</button>
 			{/if}
 		</div>
+
+		<div class="ocr-group">
+			{#if getOcrInProgress()}
+				<div class="ocr-progress">
+					<span class="ocr-spinner"></span>
+					<span class="ocr-text">OCR {getOcrProgress()?.done ?? 0}/{getOcrProgress()?.total ?? 0}</span>
+					<button class="tb-btn" onclick={cancelPdfOcr} title="Cancel OCR">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+					</button>
+				</div>
+			{:else}
+				<div class="ocr-wrapper">
+					<button
+						class="tb-btn"
+						onclick={() => { showOcrPopover = !showOcrPopover; }}
+						disabled={!getIsOcrAvailable()}
+						title={getIsOcrAvailable() ? 'OCR pages' : 'OCR not configured — set an OCR model in Settings'}
+					>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<rect x="3" y="3" width="18" height="18" rx="2" />
+							<path d="M7 8h10" /><path d="M7 12h10" /><path d="M7 16h6" />
+						</svg>
+					</button>
+					{#if showOcrPopover}
+						<div class="ocr-popover">
+							<label class="ocr-label">Pages to OCR</label>
+							<input
+								class="ocr-input"
+								type="text"
+								bind:value={ocrPageInput}
+								placeholder="e.g. 1-3, 5 or all"
+								onkeydown={(e) => { if (e.key === 'Enter') handleOcrStart(); }}
+							/>
+							<div class="ocr-actions">
+								<button class="ocr-cancel" onclick={() => { showOcrPopover = false; }}>Cancel</button>
+								<button
+									class="ocr-start"
+									onclick={handleOcrStart}
+									disabled={parsePageRange(ocrPageInput, getPdfPageCount()).length === 0}
+								>
+									Start ({parsePageRange(ocrPageInput, getPdfPageCount()).length} pages)
+								</button>
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	<div class="pages-container" bind:this={scrollContainer}>
@@ -491,5 +554,108 @@
 	.annot-canvas.drawing {
 		pointer-events: auto;
 		cursor: crosshair;
+	}
+
+	.ocr-group {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.ocr-wrapper {
+		position: relative;
+	}
+
+	.ocr-progress {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.ocr-spinner {
+		width: 12px;
+		height: 12px;
+		border: 2px solid var(--border);
+		border-top-color: var(--text-primary);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.ocr-text {
+		white-space: nowrap;
+	}
+
+	.ocr-popover {
+		position: absolute;
+		top: 100%;
+		right: 0;
+		margin-top: 4px;
+		background: var(--bg-primary);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 10px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+		z-index: 10;
+		min-width: 200px;
+	}
+
+	.ocr-label {
+		display: block;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		margin-bottom: 4px;
+	}
+
+	.ocr-input {
+		width: 100%;
+		padding: 5px 8px;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		font-size: 0.8rem;
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		margin-bottom: 8px;
+		box-sizing: border-box;
+	}
+
+	.ocr-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 6px;
+	}
+
+	.ocr-cancel, .ocr-start {
+		padding: 4px 10px;
+		border-radius: 4px;
+		font-size: 0.75rem;
+		cursor: pointer;
+	}
+
+	.ocr-cancel {
+		color: var(--text-secondary);
+	}
+
+	.ocr-cancel:hover {
+		background: var(--bg-hover);
+	}
+
+	.ocr-start {
+		background: var(--text-primary);
+		color: var(--bg-primary);
+	}
+
+	.ocr-start:disabled {
+		opacity: 0.3;
+		cursor: default;
+	}
+
+	.ocr-start:not(:disabled):hover {
+		opacity: 0.85;
 	}
 </style>

@@ -1,6 +1,6 @@
 import * as api from './api';
-import { getPageCount, extractPageTexts } from './pdf';
-import { getEffectiveModelId, getModels, loadConversations } from './stores.svelte';
+import { getPageCount, extractPageTexts, renderPageToBlob, parsePageRange } from './pdf';
+import { getEffectiveModelId, getModels, loadConversations, isOcrEnabled } from './stores.svelte';
 import type { ChatMessage, DocumentAttachment } from './types';
 
 // --- PDF state ---
@@ -10,9 +10,14 @@ let currentPage = $state(1);
 let pdfPageTexts = $state<string[]>([]);
 let isProcessing = $state(false);
 let pdfFilename = $state('');
+let pdfUploadedUrl = $state(''); // URL from /api/document/upload
 
-// OCR text overrides per page (0-indexed)
+// OCR state
 let ocrPageTexts = $state<Map<number, string>>(new Map());
+let ocrInProgress = $state(false);
+let ocrProgress = $state<{ done: number; total: number } | null>(null);
+let ocrJobId = $state<string | null>(null);
+let ocrPollTimer = $state<ReturnType<typeof setInterval> | null>(null);
 
 // --- Annotation state ---
 let annotationData = $state<Map<number, ImageData>>(new Map());
@@ -61,7 +66,11 @@ export function getPdfChatError() { return pdfChatError; }
 export function getPdfQueuePosition() { return pdfQueuePosition; }
 export function getPdfToolStatus() { return pdfToolStatus; }
 
-// --- PDF loading (two-phase: page count first, then text extraction) ---
+export function getOcrInProgress() { return ocrInProgress; }
+export function getOcrProgress() { return ocrProgress; }
+export function getIsOcrAvailable() { return isOcrEnabled(); }
+
+// --- PDF loading (two-phase: page count first, then text extraction + upload) ---
 export async function loadPdf(file: File) {
 	isProcessing = true;
 	pdfChatError = null;
@@ -75,17 +84,23 @@ export async function loadPdf(file: File) {
 		currentPage = 1;
 		isProcessing = false;
 
-		// Phase 2: Extract text per page in background (non-blocking for UI)
-		try {
-			const texts = await extractPageTexts(file);
-			pdfPageTexts = texts;
-		} catch (textErr) {
-			console.warn('PDF text extraction failed, chat context will be empty:', textErr);
-			// Viewer still works — just no text context for chat
+		// Phase 2: Upload PDF to backend + extract text (parallel, non-blocking for UI)
+		const [uploadResult] = await Promise.allSettled([
+			api.uploadDocument(file),
+			extractPageTexts(file).then(texts => { pdfPageTexts = texts; })
+		]);
+
+		if (uploadResult.status === 'fulfilled') {
+			pdfUploadedUrl = uploadResult.value.url;
+		} else {
+			console.warn('PDF upload failed:', uploadResult.reason);
+		}
+
+		// If text extraction failed, fill with empty strings
+		if (pdfPageTexts.length === 0) {
 			pdfPageTexts = Array(count).fill('');
 		}
 	} catch (err) {
-		// Only reset if we can't even open the PDF
 		pdfChatError = err instanceof Error ? err.message : 'Failed to open PDF.';
 		pdfFile = null;
 		pdfFilename = '';
@@ -126,6 +141,92 @@ export function clearAllAnnotations() {
 export function setCanvasRefs(pdf: HTMLCanvasElement | null, annot: HTMLCanvasElement | null) {
 	pdfCanvasRef = pdf;
 	annotCanvasRef = annot;
+}
+
+// --- OCR ---
+export async function startPdfOcr(pageRangeStr: string) {
+	if (!pdfFile || ocrInProgress) return;
+	if (!pdfUploadedUrl) {
+		pdfChatError = 'PDF not uploaded yet. Please wait and try again.';
+		return;
+	}
+
+	const pages = parsePageRange(pageRangeStr, pdfPageCount);
+	if (pages.length === 0) return;
+
+	ocrInProgress = true;
+	ocrProgress = { done: 0, total: pages.length };
+	pdfChatError = null;
+
+	try {
+		// Render selected pages to images and upload them
+		const ocrPages: { page_num: number; image_url: string }[] = [];
+		for (const pageNum of pages) {
+			const blob = await renderPageToBlob(pdfFile, pageNum);
+			const imageFile = new File([blob], `page-${pageNum}.png`, { type: 'image/png' });
+			const result = await api.uploadImage(imageFile);
+			ocrPages.push({ page_num: pageNum, image_url: result.url });
+		}
+
+		// Start OCR
+		const { job_id } = await api.startOCR(pdfUploadedUrl, pdfPageCount, ocrPages);
+		ocrJobId = job_id;
+
+		// Poll for progress
+		ocrPollTimer = setInterval(async () => {
+			if (!ocrJobId) return;
+			try {
+				const status = await api.getOCRStatus(ocrJobId);
+				ocrProgress = { done: status.done_pages, total: status.total_pages };
+
+				if (status.status === 'complete' && status.result_text) {
+					// Parse the result text back into per-page texts
+					const resultPages = status.result_text.split('\n\n---\n\n');
+					for (let i = 0; i < resultPages.length; i++) {
+						const text = resultPages[i].replace(/^## Page \d+\n\n/, '');
+						ocrPageTexts = new Map(ocrPageTexts);
+						ocrPageTexts.set(i, text);
+						// Also update pdfPageTexts for pages that were OCR'd
+						if (i < pdfPageTexts.length) {
+							pdfPageTexts = [...pdfPageTexts];
+							pdfPageTexts[i] = text;
+						}
+					}
+					cleanupOcr();
+				} else if (status.status === 'error') {
+					pdfChatError = status.error || 'OCR failed.';
+					cleanupOcr();
+				} else if (status.status === 'cancelled') {
+					cleanupOcr();
+				}
+			} catch {
+				// Polling error, continue
+			}
+		}, 1000);
+	} catch (err) {
+		pdfChatError = err instanceof Error ? err.message : 'Failed to start OCR.';
+		ocrInProgress = false;
+		ocrProgress = null;
+	}
+}
+
+export async function cancelPdfOcr() {
+	if (ocrJobId) {
+		try {
+			await api.cancelOCR(ocrJobId);
+		} catch { /* ignore */ }
+	}
+	cleanupOcr();
+}
+
+function cleanupOcr() {
+	if (ocrPollTimer) {
+		clearInterval(ocrPollTimer);
+		ocrPollTimer = null;
+	}
+	ocrJobId = null;
+	ocrInProgress = false;
+	ocrProgress = null;
 }
 
 // --- Context building ---
@@ -189,11 +290,11 @@ export async function sendPdfMessage(content: string) {
 	const modelInfo = getModels().find((m) => m.id === modelId);
 	const isExternal = modelInfo?.external ?? false;
 
-	// Build document context
+	// Build document context with uploaded URL
 	const contextText = getPdfContextText(isExternal);
 	const docAttachment: DocumentAttachment = {
 		filename: pdfFilename,
-		url: '',
+		url: pdfUploadedUrl || '',
 		text: contextText
 	};
 
@@ -328,7 +429,9 @@ export function resetPdfView() {
 	pdfPageTexts = [];
 	pdfFilename = '';
 	isProcessing = false;
+	pdfUploadedUrl = '';
 	ocrPageTexts = new Map();
+	cleanupOcr();
 
 	annotationData = new Map();
 	isDrawing = false;
