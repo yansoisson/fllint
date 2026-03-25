@@ -20,6 +20,7 @@
 		cancelPdfOcr,
 		getOcrInProgress,
 		getOcrProgress,
+		getOcrCompletedPages,
 		getIsOcrAvailable
 	} from '$lib/pdfViewStore.svelte';
 
@@ -350,11 +351,15 @@
 				</div>
 			{:else}
 				<div class="ocr-wrapper">
+					{#if getOcrCompletedPages().size > 0}
+						<span class="ocr-badge">{getOcrCompletedPages().size} pages OCR'd</span>
+					{/if}
 					<button
 						class="tb-btn"
+						class:has-ocr={getOcrCompletedPages().size > 0}
 						onclick={() => { showOcrPopover = !showOcrPopover; }}
 						disabled={!getIsOcrAvailable()}
-						title={getIsOcrAvailable() ? 'OCR pages' : 'OCR not configured — set an OCR model in Settings'}
+						title={!getIsOcrAvailable() ? 'OCR not configured — set an OCR model in Settings' : getOcrCompletedPages().size > 0 ? 'OCR more pages' : 'OCR pages'}
 					>
 						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 							<rect x="3" y="3" width="18" height="18" rx="2" />
@@ -363,7 +368,10 @@
 					</button>
 					{#if showOcrPopover}
 						<div class="ocr-popover">
-							<label class="ocr-label">Pages to OCR</label>
+							{#if getOcrCompletedPages().size > 0}
+								<p class="ocr-done-info">Pages already OCR'd: {[...getOcrCompletedPages()].sort((a, b) => a - b).join(', ')}</p>
+							{/if}
+							<label class="ocr-label">{getOcrCompletedPages().size > 0 ? 'OCR additional pages' : 'Pages to OCR'}</label>
 							<input
 								class="ocr-input"
 								type="text"
@@ -564,6 +572,28 @@
 
 	.ocr-wrapper {
 		position: relative;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.ocr-badge {
+		font-size: 0.65rem;
+		color: #22c55e;
+		white-space: nowrap;
+		font-weight: 500;
+	}
+
+	.tb-btn.has-ocr {
+		color: #22c55e;
+	}
+
+	.ocr-done-info {
+		font-size: 0.7rem;
+		color: var(--text-muted);
+		margin-bottom: 6px;
+		padding-bottom: 6px;
+		border-bottom: 1px solid var(--border);
 	}
 
 	.ocr-progress {

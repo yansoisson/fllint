@@ -5,8 +5,9 @@
 		cancelPdfStream,
 		cancelPdfQueueItem,
 		getPdfQueuePosition,
-		getCurrentPage,
-		getPdfPageCount
+		isPdfReady,
+		getContextStatus,
+		getOcrInProgress
 	} from '$lib/pdfViewStore.svelte';
 	import { isEffectiveModelLoading } from '$lib/stores.svelte';
 
@@ -14,6 +15,8 @@
 	let textareaEl = $state<HTMLTextAreaElement | null>(null);
 
 	let modelLoading = $derived(isEffectiveModelLoading());
+	let ctxStatus = $derived(getContextStatus());
+	let canSend = $derived(inputText.trim() && !getPdfIsStreaming() && !modelLoading && isPdfReady());
 
 	function autoResize() {
 		if (textareaEl) {
@@ -23,13 +26,10 @@
 	}
 
 	async function handleSubmit() {
+		if (!canSend) return;
 		const text = inputText.trim();
-		if (!text || getPdfIsStreaming() || modelLoading) return;
-
 		inputText = '';
-		if (textareaEl) {
-			textareaEl.style.height = 'auto';
-		}
+		if (textareaEl) textareaEl.style.height = 'auto';
 		await sendPdfMessage(text);
 	}
 
@@ -46,8 +46,12 @@
 </script>
 
 <div class="pdf-input-bar">
-	<div class="context-hint">
-		Page {getCurrentPage()} of {getPdfPageCount()} in view
+	<div class="status-row">
+		<span class="status-dot" class:ready={ctxStatus.ready} class:busy={!ctxStatus.ready && !ctxStatus.detail}></span>
+		<span class="status-label" class:error={!ctxStatus.ready && ctxStatus.detail}>{ctxStatus.label}</span>
+		{#if ctxStatus.detail}
+			<span class="status-detail">{ctxStatus.detail}</span>
+		{/if}
 	</div>
 	<div class="input-row">
 		<textarea
@@ -55,9 +59,9 @@
 			bind:value={inputText}
 			oninput={autoResize}
 			onkeydown={handleKeydown}
-			placeholder="Ask about this PDF..."
+			placeholder={ctxStatus.ready ? 'Ask about this PDF...' : 'Waiting for PDF to be ready...'}
 			rows="1"
-			disabled={modelLoading}
+			disabled={modelLoading || !isPdfReady()}
 		></textarea>
 		{#if getPdfIsStreaming()}
 			<button class="stop-btn" onclick={handleStop} title="Stop">
@@ -69,8 +73,8 @@
 			<button
 				class="send-btn"
 				onclick={handleSubmit}
-				disabled={!inputText.trim() || modelLoading}
-				title="Send"
+				disabled={!canSend}
+				title={ctxStatus.ready ? 'Send' : ctxStatus.label}
 			>
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<line x1="22" y1="2" x2="11" y2="13" />
@@ -92,10 +96,47 @@
 		flex-shrink: 0;
 	}
 
-	.context-hint {
-		font-size: 0.7rem;
-		color: var(--text-muted);
+	.status-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 		margin-bottom: 6px;
+		font-size: 0.7rem;
+	}
+
+	.status-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		flex-shrink: 0;
+		background: var(--text-muted);
+	}
+
+	.status-dot.ready {
+		background: #22c55e;
+	}
+
+	.status-dot.busy {
+		background: #f59e0b;
+		animation: pulse 1.2s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.4; }
+	}
+
+	.status-label {
+		color: var(--text-muted);
+		font-weight: 500;
+	}
+
+	.status-label.error {
+		color: #e74c3c;
+	}
+
+	.status-detail {
+		color: var(--text-muted);
 	}
 
 	.input-row {
@@ -124,6 +165,10 @@
 
 	textarea::placeholder {
 		color: var(--text-muted);
+	}
+
+	textarea:disabled {
+		opacity: 0.5;
 	}
 
 	.send-btn, .stop-btn {
