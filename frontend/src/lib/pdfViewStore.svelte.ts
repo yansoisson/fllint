@@ -12,7 +12,7 @@ let isProcessing = $state(false);
 let pdfFilename = $state('');
 let pdfUploadedUrl = $state('');
 
-// Readiness tracking — each must be true before chat is allowed
+// Readiness tracking
 let textExtractionDone = $state(false);
 let textExtractionFailed = $state(false);
 let uploadDone = $state(false);
@@ -20,7 +20,7 @@ let uploadFailed = $state(false);
 
 // OCR state
 let ocrPageTexts = $state<Map<number, string>>(new Map());
-let ocrCompletedPages = $state<Set<number>>(new Set()); // pages that have been OCR'd
+let ocrCompletedPages = $state<Set<number>>(new Set());
 let ocrInProgress = $state(false);
 let ocrProgress = $state<{ done: number; total: number } | null>(null);
 let ocrJobId = $state<string | null>(null);
@@ -31,6 +31,9 @@ let annotationData = $state<Map<number, ImageData>>(new Map());
 let isDrawing = $state(false);
 let penColor = $state('#ff0000');
 let penSize = $state(3);
+
+// --- Extra documents (additional attachments beyond the PDF) ---
+let extraDocuments = $state<{ file: File; name: string }[]>([]);
 
 // --- Chat state ---
 let pdfMessages = $state<ChatMessage[]>([]);
@@ -45,7 +48,7 @@ let pdfQueuePosition = $state<number | null>(null);
 let pdfQueueItemId = $state<string | null>(null);
 let pdfToolStatus = $state<string | null>(null);
 
-// --- Canvas references (set by PdfViewer) ---
+// --- Canvas references ---
 let pdfCanvasRef = $state<HTMLCanvasElement | null>(null);
 let annotCanvasRef = $state<HTMLCanvasElement | null>(null);
 
@@ -63,6 +66,8 @@ export function getIsDrawing() { return isDrawing; }
 export function getPenColor() { return penColor; }
 export function getPenSize() { return penSize; }
 
+export function getExtraDocuments() { return extraDocuments; }
+
 export function getPdfMessages() { return pdfMessages; }
 export function getPdfConversationId() { return pdfConversationId; }
 export function getPdfIsStreaming() { return pdfIsStreaming; }
@@ -79,12 +84,10 @@ export function getOcrCompletedPages() { return ocrCompletedPages; }
 export function getIsOcrAvailable() { return isOcrEnabled(); }
 
 // --- Readiness ---
-// True when PDF is fully loaded and ready for chat (text extracted + uploaded)
 export function isPdfReady(): boolean {
 	return pdfFile !== null && textExtractionDone && uploadDone && !ocrInProgress;
 }
 
-// Human-readable status for the context indicator
 export function getContextStatus(): { ready: boolean; label: string; detail: string } {
 	if (!pdfFile) return { ready: false, label: 'No PDF', detail: '' };
 	if (!textExtractionDone && !textExtractionFailed) return { ready: false, label: 'Extracting text...', detail: '' };
@@ -98,14 +101,13 @@ export function getContextStatus(): { ready: boolean; label: string; detail: str
 		return { ready: false, label: 'Upload failed', detail: 'The PDF could not be uploaded. Try reloading it.' };
 	}
 
-	// Count pages with actual text content
 	const effectiveTexts = pdfPageTexts.map((t, i) => ocrPageTexts.get(i) ?? t);
 	const pagesWithText = effectiveTexts.filter(t => t.trim().length > 0).length;
-	const totalPages = pdfPageCount;
 	const ocrCount = ocrCompletedPages.size;
 
-	let detail = `${pagesWithText}/${totalPages} pages have text`;
+	let detail = `${pagesWithText}/${pdfPageCount} pages have text`;
 	if (ocrCount > 0) detail += ` (${ocrCount} OCR'd)`;
+	detail += ` · Viewing page ${currentPage}`;
 
 	return { ready: true, label: 'Ready', detail };
 }
@@ -127,7 +129,6 @@ export async function loadPdf(file: File) {
 		currentPage = 1;
 		isProcessing = false;
 
-		// Phase 2: Upload + extract in parallel
 		const [uploadResult, textResult] = await Promise.allSettled([
 			api.uploadDocument(file),
 			extractPageTexts(file)
@@ -138,7 +139,6 @@ export async function loadPdf(file: File) {
 			uploadDone = true;
 		} else {
 			uploadFailed = true;
-			console.warn('PDF upload failed:', uploadResult.reason);
 		}
 
 		if (textResult.status === 'fulfilled') {
@@ -147,8 +147,7 @@ export async function loadPdf(file: File) {
 		} else {
 			textExtractionFailed = true;
 			pdfPageTexts = Array(count).fill('');
-			textExtractionDone = true; // "done" in the sense that we tried
-			console.warn('PDF text extraction failed:', textResult.reason);
+			textExtractionDone = true;
 		}
 	} catch (err) {
 		pdfChatError = err instanceof Error ? err.message : 'Failed to open PDF.';
@@ -193,6 +192,15 @@ export function setCanvasRefs(pdf: HTMLCanvasElement | null, annot: HTMLCanvasEl
 	annotCanvasRef = annot;
 }
 
+// --- Extra document uploads ---
+export function addExtraDocument(file: File) {
+	extraDocuments = [...extraDocuments, { file, name: file.name }];
+}
+
+export function removeExtraDocument(index: number) {
+	extraDocuments = extraDocuments.filter((_, i) => i !== index);
+}
+
 // --- OCR ---
 export async function startPdfOcr(pageRangeStr: string) {
 	if (!pdfFile || ocrInProgress) return;
@@ -233,23 +241,15 @@ export async function startPdfOcr(pageRangeStr: string) {
 					for (let i = 0; i < resultPages.length; i++) {
 						const text = resultPages[i].replace(/^## Page \d+\n\n/, '');
 						newOcrMap.set(i, text);
-						if (i < newTexts.length) {
-							newTexts[i] = text;
-						}
+						if (i < newTexts.length) newTexts[i] = text;
 					}
 					ocrPageTexts = newOcrMap;
 					pdfPageTexts = newTexts;
 
-					// Track which pages were OCR'd
 					const newCompleted = new Set(ocrCompletedPages);
-					for (let i = 0; i < resultPages.length; i++) {
-						newCompleted.add(i + 1); // 1-based
-					}
+					for (let i = 0; i < resultPages.length; i++) newCompleted.add(i + 1);
 					ocrCompletedPages = newCompleted;
-
-					// OCR success means text extraction is no longer "failed"
 					textExtractionFailed = false;
-
 					cleanupOcr();
 				} else if (status.status === 'error') {
 					pdfChatError = status.error || 'OCR failed.';
@@ -257,9 +257,7 @@ export async function startPdfOcr(pageRangeStr: string) {
 				} else if (status.status === 'cancelled') {
 					cleanupOcr();
 				}
-			} catch {
-				// Polling error, continue
-			}
+			} catch { /* polling error, continue */ }
 		}, 1000);
 	} catch (err) {
 		pdfChatError = err instanceof Error ? err.message : 'Failed to start OCR.';
@@ -269,17 +267,12 @@ export async function startPdfOcr(pageRangeStr: string) {
 }
 
 export async function cancelPdfOcr() {
-	if (ocrJobId) {
-		try { await api.cancelOCR(ocrJobId); } catch { /* ignore */ }
-	}
+	if (ocrJobId) { try { await api.cancelOCR(ocrJobId); } catch { /* ignore */ } }
 	cleanupOcr();
 }
 
 function cleanupOcr() {
-	if (ocrPollTimer) {
-		clearInterval(ocrPollTimer);
-		ocrPollTimer = null;
-	}
+	if (ocrPollTimer) { clearInterval(ocrPollTimer); ocrPollTimer = null; }
 	ocrJobId = null;
 	ocrInProgress = false;
 	ocrProgress = null;
@@ -293,17 +286,13 @@ export function getPdfContextText(isExternal: boolean): string {
 	const effectiveTexts = texts.map((t, i) => ocrPageTexts.get(i) ?? t);
 
 	if (isExternal) {
-		return effectiveTexts
-			.map((t, i) => `--- Page ${i + 1} ---\n${t}`)
-			.join('\n\n');
+		return effectiveTexts.map((t, i) => `--- Page ${i + 1} ---\n${t}`).join('\n\n');
 	}
 
 	const start = Math.max(0, currentPage - 1 - 25);
 	const end = Math.min(texts.length, currentPage - 1 + 26);
-	const slice = effectiveTexts.slice(start, end);
-	return slice
-		.map((t, i) => `--- Page ${start + i + 1} ---\n${t}`)
-		.join('\n\n');
+	return effectiveTexts.slice(start, end)
+		.map((t, i) => `--- Page ${start + i + 1} ---\n${t}`).join('\n\n');
 }
 
 // --- Capture current page with annotations ---
@@ -314,20 +303,15 @@ async function captureCurrentPageWithAnnotations(): Promise<string> {
 
 	const w = pdfCanvasRef.width;
 	const h = pdfCanvasRef.height;
-
 	const composite = document.createElement('canvas');
 	composite.width = w;
 	composite.height = h;
 	const ctx = composite.getContext('2d')!;
 	ctx.drawImage(pdfCanvasRef, 0, 0);
-	if (annotCanvasRef) {
-		ctx.drawImage(annotCanvasRef, 0, 0);
-	}
+	if (annotCanvasRef) ctx.drawImage(annotCanvasRef, 0, 0);
 
 	const blob = await new Promise<Blob | null>((resolve) => composite.toBlob(resolve, 'image/png'));
-	if (!blob) {
-		throw new Error('Failed to capture page image.');
-	}
+	if (!blob) throw new Error('Failed to capture page image.');
 
 	const file = new File([blob], `page-${currentPage}.png`, { type: 'image/png' });
 	const result = await api.uploadImage(file);
@@ -339,45 +323,47 @@ export async function sendPdfMessage(content: string) {
 	if (!pdfFile || pdfIsStreaming) return;
 	pdfChatError = null;
 
-	// --- Pre-send validation: guarantee context integrity ---
-	if (!textExtractionDone) {
-		pdfChatError = 'Text extraction is still in progress. Please wait.';
-		return;
-	}
-	if (uploadFailed) {
-		pdfChatError = 'PDF upload failed. Reload the PDF and try again.';
-		return;
-	}
-	if (ocrInProgress) {
-		pdfChatError = 'OCR is in progress. Wait for it to finish or cancel it first.';
-		return;
-	}
+	// Pre-send validation
+	if (!textExtractionDone) { pdfChatError = 'Text extraction is still in progress. Please wait.'; return; }
+	if (uploadFailed) { pdfChatError = 'PDF upload failed. Reload the PDF and try again.'; return; }
+	if (ocrInProgress) { pdfChatError = 'OCR is in progress. Wait for it to finish or cancel it first.'; return; }
 
 	const modelId = getEffectiveModelId();
-	if (!modelId) {
-		pdfChatError = 'No model selected. Please select a model first.';
-		return;
-	}
+	if (!modelId) { pdfChatError = 'No model selected. Please select a model first.'; return; }
 	const modelInfo = getModels().find((m) => m.id === modelId);
 	const isExternal = modelInfo?.external ?? false;
 
-	// Build context text and validate it has content
-	const contextText = getPdfContextText(isExternal);
 	const effectiveTexts = pdfPageTexts.map((t, i) => ocrPageTexts.get(i) ?? t);
 	const pagesWithText = effectiveTexts.filter(t => t.trim().length > 0).length;
-
 	if (pagesWithText === 0) {
 		pdfChatError = 'No text could be extracted from this PDF. Use OCR to extract text from scanned pages before chatting.';
 		return;
 	}
 
-	const docAttachment: DocumentAttachment = {
-		filename: pdfFilename,
-		url: pdfUploadedUrl || '',
-		text: contextText
-	};
+	// Build document attachments: PDF context + any extra documents
+	const contextText = getPdfContextText(isExternal);
+	const allDocs: DocumentAttachment[] = [
+		{ filename: pdfFilename, url: pdfUploadedUrl || '', text: contextText }
+	];
 
-	// Capture current page image — this must succeed
+	// Upload and attach extra documents
+	if (extraDocuments.length > 0) {
+		try {
+			for (const doc of extraDocuments) {
+				const uploaded = await api.uploadDocument(doc.file);
+				allDocs.push({
+					filename: uploaded.original_name,
+					url: uploaded.url,
+					text: uploaded.extracted_text
+				});
+			}
+		} catch (err) {
+			pdfChatError = err instanceof Error ? err.message : 'Failed to upload additional document.';
+			return;
+		}
+	}
+
+	// Capture current page with annotations
 	let pageImageUrl: string;
 	try {
 		pageImageUrl = await captureCurrentPageWithAnnotations();
@@ -386,9 +372,15 @@ export async function sendPdfMessage(content: string) {
 		return;
 	}
 
-	// Everything validated — now add the user message and start streaming
+	// All validated — add user message
 	const userMsg: ChatMessage = { role: 'user', content };
+	if (extraDocuments.length > 0) {
+		userMsg.documents = allDocs.slice(1); // show extra docs on the message bubble
+	}
 	pdfMessages = [...pdfMessages, userMsg];
+
+	// Clear extra documents after they've been sent
+	extraDocuments = [];
 
 	pdfIsStreaming = true;
 	pdfStreamingContent = '';
@@ -406,37 +398,28 @@ export async function sendPdfMessage(content: string) {
 			content,
 			pdfConversationId ?? undefined,
 			[pageImageUrl],
-			[docAttachment],
+			allDocs,
 			modelId,
 			pdfAbortController.signal,
-			{ appType: !pdfConversationId ? 'pdf-view' : undefined }
+			{
+				appType: !pdfConversationId ? 'pdf-view' : undefined,
+				pdfView: { current_page: currentPage, total_pages: pdfPageCount }
+			}
 		)) {
 			if (token.conversation_id && !pdfConversationId) {
 				pdfConversationId = token.conversation_id;
 			}
-			if (token.queue_id) {
-				pdfQueueItemId = token.queue_id;
-			}
-			if (token.position !== undefined) {
-				pdfQueuePosition = token.position;
-			}
-			if (token.reasoning) {
-				pdfStreamingReasoning += token.reasoning;
-			}
-			if (token.thinking_duration !== undefined) {
-				pdfThinkingDuration = token.thinking_duration;
-			}
-			if (token.tool_status) {
-				pdfToolStatus = token.tool_status;
-			}
+			if (token.queue_id) pdfQueueItemId = token.queue_id;
+			if (token.position !== undefined) pdfQueuePosition = token.position;
+			if (token.reasoning) pdfStreamingReasoning += token.reasoning;
+			if (token.thinking_duration !== undefined) pdfThinkingDuration = token.thinking_duration;
+			if (token.tool_status) pdfToolStatus = token.tool_status;
 			if (token.content) {
 				pdfQueuePosition = null;
 				pdfToolStatus = null;
 				pdfStreamingContent += token.content;
 			}
-			if (token.error) {
-				pdfChatError = token.error;
-			}
+			if (token.error) pdfChatError = token.error;
 		}
 
 		if (pdfStreamingContent) {
@@ -446,9 +429,7 @@ export async function sendPdfMessage(content: string) {
 			pdfMessages = [...pdfMessages, msg];
 		}
 		await loadConversations();
-		if (isNewConversation) {
-			setTimeout(() => loadConversations(), 3000);
-		}
+		if (isNewConversation) setTimeout(() => loadConversations(), 3000);
 	} catch (err) {
 		if (err instanceof DOMException && err.name === 'AbortError') {
 			if (pdfStreamingContent) {
@@ -473,21 +454,15 @@ export async function sendPdfMessage(content: string) {
 }
 
 export function cancelPdfStream() {
-	if (pdfAbortController) {
-		pdfAbortController.abort();
-		pdfAbortController = null;
-	}
+	if (pdfAbortController) { pdfAbortController.abort(); pdfAbortController = null; }
 }
 
 export async function cancelPdfQueueItem() {
 	const id = pdfQueueItemId;
-	if (id) {
-		try { await api.cancelQueueItem(id); } catch { /* ignore */ }
-	}
+	if (id) { try { await api.cancelQueueItem(id); } catch { /* ignore */ } }
 	cancelPdfStream();
 }
 
-// --- Load existing PDF conversation ---
 export async function loadPdfConversation(convId: string) {
 	try {
 		const conv = await api.getConversation(convId);
@@ -498,7 +473,6 @@ export async function loadPdfConversation(convId: string) {
 	}
 }
 
-// --- Reset ---
 export function resetPdfView() {
 	pdfFile = null;
 	pdfPageCount = 0;
@@ -514,6 +488,7 @@ export function resetPdfView() {
 	ocrPageTexts = new Map();
 	ocrCompletedPages = new Set();
 	cleanupOcr();
+	extraDocuments = [];
 
 	annotationData = new Map();
 	isDrawing = false;

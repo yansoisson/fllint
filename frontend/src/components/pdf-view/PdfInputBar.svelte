@@ -5,18 +5,30 @@
 		cancelPdfStream,
 		cancelPdfQueueItem,
 		getPdfQueuePosition,
+		getCurrentPage,
+		getPdfPageCount,
 		isPdfReady,
 		getContextStatus,
-		getOcrInProgress
+		getOcrInProgress,
+		getExtraDocuments,
+		addExtraDocument,
+		removeExtraDocument
 	} from '$lib/pdfViewStore.svelte';
 	import { isEffectiveModelLoading } from '$lib/stores.svelte';
 
 	let inputText = $state('');
 	let textareaEl = $state<HTMLTextAreaElement | null>(null);
+	let fileInput = $state<HTMLInputElement | null>(null);
 
 	let modelLoading = $derived(isEffectiveModelLoading());
 	let ctxStatus = $derived(getContextStatus());
 	let canSend = $derived(inputText.trim() && !getPdfIsStreaming() && !modelLoading && isPdfReady());
+
+	const DOC_EXTENSIONS = new Set([
+		'.txt', '.md', '.csv', '.json', '.xml', '.yaml', '.yml', '.toml', '.log',
+		'.go', '.js', '.ts', '.py', '.rs', '.c', '.cpp', '.h', '.java', '.rb',
+		'.php', '.swift', '.sh', '.css', '.html', '.sql', '.pdf', '.docx'
+	]);
 
 	function autoResize() {
 		if (textareaEl) {
@@ -43,6 +55,16 @@
 	function handleStop() {
 		cancelPdfQueueItem();
 	}
+
+	function onFileChange(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const files = input.files;
+		if (!files) return;
+		for (const file of files) {
+			addExtraDocument(file);
+		}
+		input.value = '';
+	}
 </script>
 
 <div class="pdf-input-bar">
@@ -53,13 +75,42 @@
 			<span class="status-detail">{ctxStatus.detail}</span>
 		{/if}
 	</div>
+
+	{#if getExtraDocuments().length > 0}
+		<div class="extra-docs">
+			{#each getExtraDocuments() as doc, i}
+				<span class="doc-chip">
+					{doc.name}
+					<button class="doc-remove" onclick={() => removeExtraDocument(i)}>&times;</button>
+				</span>
+			{/each}
+		</div>
+	{/if}
+
 	<div class="input-row">
+		<button
+			class="attach-btn"
+			onclick={() => fileInput?.click()}
+			disabled={!isPdfReady() || getPdfIsStreaming()}
+			title="Attach additional document"
+		>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+			</svg>
+		</button>
+		<input
+			bind:this={fileInput}
+			type="file"
+			multiple
+			onchange={onFileChange}
+			class="hidden-input"
+		/>
 		<textarea
 			bind:this={textareaEl}
 			bind:value={inputText}
 			oninput={autoResize}
 			onkeydown={handleKeydown}
-			placeholder={ctxStatus.ready ? 'Ask about this PDF...' : 'Waiting for PDF to be ready...'}
+			placeholder={ctxStatus.ready ? `Ask about this PDF (viewing page ${getCurrentPage()})...` : 'Waiting for PDF to be ready...'}
 			rows="1"
 			disabled={modelLoading || !isPdfReady()}
 		></textarea>
@@ -112,9 +163,7 @@
 		background: var(--text-muted);
 	}
 
-	.status-dot.ready {
-		background: #22c55e;
-	}
+	.status-dot.ready { background: #22c55e; }
 
 	.status-dot.busy {
 		background: #f59e0b;
@@ -126,18 +175,37 @@
 		50% { opacity: 0.4; }
 	}
 
-	.status-label {
-		color: var(--text-muted);
-		font-weight: 500;
+	.status-label { color: var(--text-muted); font-weight: 500; }
+	.status-label.error { color: #e74c3c; }
+	.status-detail { color: var(--text-muted); }
+
+	.extra-docs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		margin-bottom: 6px;
 	}
 
-	.status-label.error {
-		color: #e74c3c;
+	.doc-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 2px 8px;
+		background: var(--bg-tertiary);
+		border-radius: 4px;
+		font-size: 0.7rem;
+		color: var(--text-secondary);
 	}
 
-	.status-detail {
+	.doc-remove {
+		font-size: 14px;
+		line-height: 1;
 		color: var(--text-muted);
+		cursor: pointer;
+		padding: 0 2px;
 	}
+
+	.doc-remove:hover { color: #e74c3c; }
 
 	.input-row {
 		display: flex;
@@ -148,6 +216,24 @@
 		border-radius: 12px;
 		padding: 8px 12px;
 	}
+
+	.attach-btn {
+		width: 28px;
+		height: 28px;
+		border-radius: 6px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		color: var(--text-muted);
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.attach-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+	.attach-btn:disabled { opacity: 0.3; cursor: default; }
+
+	.hidden-input { display: none; }
 
 	textarea {
 		flex: 1;
@@ -163,13 +249,8 @@
 		max-height: 160px;
 	}
 
-	textarea::placeholder {
-		color: var(--text-muted);
-	}
-
-	textarea:disabled {
-		opacity: 0.5;
-	}
+	textarea::placeholder { color: var(--text-muted); }
+	textarea:disabled { opacity: 0.5; }
 
 	.send-btn, .stop-btn {
 		width: 32px;
@@ -183,28 +264,12 @@
 		transition: all 0.15s;
 	}
 
-	.send-btn {
-		background: var(--text-primary);
-		color: var(--bg-primary);
-	}
+	.send-btn { background: var(--text-primary); color: var(--bg-primary); }
+	.send-btn:disabled { opacity: 0.3; cursor: default; }
+	.send-btn:not(:disabled):hover { opacity: 0.85; }
 
-	.send-btn:disabled {
-		opacity: 0.3;
-		cursor: default;
-	}
-
-	.send-btn:not(:disabled):hover {
-		opacity: 0.85;
-	}
-
-	.stop-btn {
-		background: var(--error-text, #991b1b);
-		color: white;
-	}
-
-	.stop-btn:hover {
-		opacity: 0.85;
-	}
+	.stop-btn { background: var(--error-text, #991b1b); color: white; }
+	.stop-btn:hover { opacity: 0.85; }
 
 	.queue-info {
 		font-size: 0.75rem;

@@ -67,6 +67,11 @@ type documentAttachment struct {
 	Text     string `json:"text"`
 }
 
+type pdfViewContext struct {
+	CurrentPage int `json:"current_page"`
+	TotalPages  int `json:"total_pages"`
+}
+
 type chatRequest struct {
 	ConversationID string               `json:"conversation_id"`
 	Content        string               `json:"content"`
@@ -76,6 +81,7 @@ type chatRequest struct {
 	NoReasoning    bool                 `json:"no_reasoning,omitempty"`
 	Retry          bool                 `json:"retry,omitempty"`
 	AppType        string               `json:"app_type,omitempty"`
+	PdfView        *pdfViewContext      `json:"pdf_view,omitempty"`
 }
 
 // processToken extracts usage metadata from a token and returns true if
@@ -284,6 +290,30 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		CurrentDateTime:  time.Now().Format("Monday, January 2, 2006 at 3:04 PM"),
 		WebSearchEnabled: webSearchEnabled,
 	})
+
+	// Append PDF View context to system prompt if this is a pdf-view conversation
+	appType := conv.AppType
+	if req.AppType != "" {
+		appType = req.AppType
+	}
+	if appType == "pdf-view" && req.PdfView != nil {
+		systemContent += fmt.Sprintf(`
+
+## PDF View Mode
+
+You are in PDF View mode. The user has loaded a PDF document and is viewing it in a split-screen interface with the PDF on the left and this chat on the right.
+
+**What you receive with each message:**
+- The extracted text of the PDF (or a window of pages around the current page for local models).
+- An image of the page the user is currently viewing (page %d of %d). This image includes any annotations (drawings, marks) the user has made on that page.
+- The user may also attach additional documents for reference alongside the PDF.
+
+**How to behave:**
+- Reference specific page numbers when discussing content.
+- If the user has drawn or marked something on the current page, acknowledge and refer to those annotations.
+- The user can scroll to different pages. The current page and its annotations may change between messages.
+- Treat the PDF text as the primary source. Use the page image for visual context, layout, figures, and annotations.`, req.PdfView.CurrentPage, req.PdfView.TotalPages)
+	}
 
 	var engineMessages []llm.ChatMessage
 	if systemContent != "" {

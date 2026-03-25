@@ -100,17 +100,28 @@
 	$effect(() => {
 		if (!scrollContainer || getPdfPageCount() === 0) return;
 
+		// Track visibility ratios for all pages to find the most visible one
+		const pageVisibility = new Map<number, number>();
+
 		const observer = new IntersectionObserver(
 			(entries) => {
-				let bestPage = getCurrentPage();
-				let bestRatio = 0;
 				for (const entry of entries) {
 					const pageNum = parseInt(entry.target.getAttribute('data-page') ?? '0');
-					if (entry.intersectionRatio > bestRatio) {
-						bestRatio = entry.intersectionRatio;
+					if (pageNum > 0) {
+						pageVisibility.set(pageNum, entry.intersectionRatio);
+					}
+				}
+
+				// Find the page with the highest visible percentage
+				let bestPage = getCurrentPage();
+				let bestRatio = 0;
+				for (const [pageNum, ratio] of pageVisibility) {
+					if (ratio > bestRatio) {
+						bestRatio = ratio;
 						bestPage = pageNum;
 					}
 				}
+
 				if (bestRatio > 0 && bestPage !== getCurrentPage()) {
 					setCurrentPage(bestPage);
 					pageInput = String(bestPage);
@@ -119,7 +130,7 @@
 			},
 			{
 				root: scrollContainer,
-				threshold: [0, 0.25, 0.5, 0.75, 1.0]
+				threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 			}
 		);
 
